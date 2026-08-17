@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment variables / secrets
+.env
+.streamlit/secrets.toml
+
+# Generated reports (demo output, not source code)
+reports/*
+!reports/.gitkeep
+
+# OS / editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Claude Code local settings (machine-specific, not shared)
+.claude/settings.local.json
