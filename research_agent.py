@@ -20,6 +20,13 @@ from mock_data import find_topic_data
 
 _BULLET_PREFIX_RE = re.compile(r"^(?:[-*•]|\d+[.)])\s*")
 
+# Shown on every report (screen + PDF) so nothing implies the AI's output
+# is verified fact. Single source of truth so screen and PDF never drift.
+VERIFICATION_NOTICE = (
+    "AI-generated research based on retrieved web sources. Verify important "
+    "claims using the cited sources."
+)
+
 
 def _strip_bullet_prefix(text):
     return _BULLET_PREFIX_RE.sub("", text, count=1).strip()
@@ -462,6 +469,38 @@ def generate_report(topic, depth, plan, sources, analysis, synthesis, sources_ar
 
     report_text = "\n".join(lines)
     return report_text
+
+
+def parse_report_markdown(report_text):
+    """
+    Split a generated report's markdown into an intro block (title/status
+    line/date) and a list of (heading, body) sections. Shared by the UI
+    (to render report cards) and the PDF exporter (to build PDF sections)
+    so both read the exact same report data, never re-deriving it.
+    """
+    intro_lines = []
+    sections = []
+    current_heading = None
+    current_lines = []
+
+    for line in report_text.split("\n"):
+        if line.startswith("## "):
+            if current_heading is not None:
+                sections.append((current_heading, "\n".join(current_lines).strip()))
+            current_heading = line[3:].strip()
+            current_lines = []
+        elif line.startswith("# "):
+            continue
+        else:
+            if current_heading is None:
+                intro_lines.append(line)
+            else:
+                current_lines.append(line)
+
+    if current_heading is not None:
+        sections.append((current_heading, "\n".join(current_lines).strip()))
+
+    return "\n".join(intro_lines).strip(), sections
 
 
 def markdown_to_plain_text(markdown_text):

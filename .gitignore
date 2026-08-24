@@ -15,6 +15,10 @@ venv/
 reports/*
 !reports/.gitkeep
 
+# Research History / Saved Reports persistence (runtime data, not source code)
+data/*
+!data/.gitkeep
+
 # OS / editor files
 .DS_Store
 .vscode/

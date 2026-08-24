@@ -8,12 +8,15 @@
 # the demo data lives in mock_data.py. This keeps app.py simple and
 # easy to read, even though the workflow it displays has many steps.
 
+import datetime
 import html
 
 import streamlit as st
 
 import openrouter_client
+import pdf_export
 import research_agent
+import storage
 
 
 # ---------------------------------------------------------------------
@@ -349,6 +352,7 @@ st.markdown(
 # the research pipeline's own data, only presentation bookkeeping).
 # ---------------------------------------------------------------------
 st.session_state.setdefault("usage_count", 0)
+st.session_state.setdefault("view", "research")
 
 
 # ---------------------------------------------------------------------
@@ -420,40 +424,9 @@ def render_source_cards_html(sources, sources_are_real):
     return "".join(parts)
 
 
-def parse_report_markdown(report_text):
-    """
-    Split the already-generated report markdown into an intro block
-    (title/status line/date) and a list of (heading, body) sections,
-    so the exact same content can be displayed inside separate cards.
-    """
-    intro_lines = []
-    sections = []
-    current_heading = None
-    current_lines = []
-
-    for line in report_text.split("\n"):
-        if line.startswith("## "):
-            if current_heading is not None:
-                sections.append((current_heading, "\n".join(current_lines).strip()))
-            current_heading = line[3:].strip()
-            current_lines = []
-        elif line.startswith("# "):
-            continue
-        else:
-            if current_heading is None:
-                intro_lines.append(line)
-            else:
-                current_lines.append(line)
-
-    if current_heading is not None:
-        sections.append((current_heading, "\n".join(current_lines).strip()))
-
-    return "\n".join(intro_lines).strip(), sections
-
-
 def render_report_cards(report_text, sources, sources_are_real):
     """Render the persisted final report as a set of clean, titled cards."""
-    intro, sections = parse_report_markdown(report_text)
+    intro, sections = research_agent.parse_report_markdown(report_text)
 
     if intro:
         st.markdown(f'<div class="ros-report-meta">{intro}</div>'.replace("\n", "<br>"), unsafe_allow_html=True)
@@ -471,6 +444,117 @@ def render_report_cards(report_text, sources, sources_are_real):
             unsafe_allow_html=True,
         )
         st.markdown(render_source_cards_html(sources, sources_are_real), unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div style="font-size:0.78rem; color:var(--warn); border:1px solid rgba(240,180,91,0.3); '
+        f'background:rgba(240,180,91,0.07); border-radius:10px; padding:0.6rem 0.9rem; margin-top:0.8rem;">'
+        f"⚠ {html.escape(research_agent.VERIFICATION_NOTICE)}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _format_timestamp(iso_timestamp):
+    """Render a stored ISO timestamp as a friendly date/time string."""
+    try:
+        return datetime.datetime.fromisoformat(iso_timestamp).strftime("%B %d, %Y · %I:%M %p")
+    except (TypeError, ValueError):
+        return iso_timestamp or ""
+
+
+def _open_entry_for_viewing(entry):
+    """Load a History/Saved entry into session_state as the active report."""
+    st.session_state["report_text"] = entry["report_text"]
+    st.session_state["report_topic"] = entry["question"]
+    st.session_state["report_sources"] = entry["sources"]
+    st.session_state["report_sources_are_real"] = entry["sources_are_real"]
+    st.session_state["report_depth"] = entry["depth"]
+    st.session_state["report_timestamp"] = entry["timestamp"]
+    st.session_state["view"] = "research"
+
+
+def _render_entry_card(entry, on_primary, primary_label, on_delete, key_prefix):
+    """Shared card layout for one History or Saved Reports entry."""
+    with st.container(border=True):
+        title = entry.get("title") or entry["question"]
+        st.markdown(
+            f'<div class="ros-report-meta"><b>{html.escape(title)}</b><br>'
+            f'{html.escape(_format_timestamp(entry["timestamp"]))} &middot; '
+            f'{html.escape(entry["depth"])} &middot; {entry["source_count"]} source(s)</div>',
+            unsafe_allow_html=True,
+        )
+        if entry.get("summary"):
+            st.markdown(
+                f'<div class="ros-source-summary">{html.escape(entry["summary"])}</div>',
+                unsafe_allow_html=True,
+            )
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button(primary_label, key=f"{key_prefix}-view-{entry['id']}", width="stretch"):
+                on_primary(entry)
+                st.rerun()
+        with col2:
+            pdf_bytes = pdf_export.generate_pdf(
+                entry["question"],
+                _format_timestamp(entry["timestamp"]),
+                entry["depth"],
+                entry["report_text"],
+                entry["sources"],
+                entry["sources_are_real"],
+            )
+            st.download_button(
+                "Download PDF",
+                data=pdf_bytes,
+                file_name="research_report.pdf",
+                mime="application/pdf",
+                key=f"{key_prefix}-pdf-{entry['id']}",
+                width="stretch",
+            )
+        with col3:
+            if st.button("Delete", key=f"{key_prefix}-del-{entry['id']}", width="stretch"):
+                on_delete(entry["id"])
+                st.rerun()
+
+
+def render_history_view():
+    st.markdown('<div class="ros-section-label">Research History</div>', unsafe_allow_html=True)
+    entries = storage.list_history()
+    if not entries:
+        st.markdown(
+            '<div class="ros-empty"><h3>No research history yet.</h3>'
+            "<p>Every completed research run is automatically saved here, "
+            "so you can revisit it later.</p></div>",
+            unsafe_allow_html=True,
+        )
+        return
+    for entry in entries:
+        _render_entry_card(
+            entry,
+            on_primary=_open_entry_for_viewing,
+            primary_label="View Report",
+            on_delete=storage.delete_history_entry,
+            key_prefix="hist",
+        )
+
+
+def render_saved_view():
+    st.markdown('<div class="ros-section-label">Saved Reports</div>', unsafe_allow_html=True)
+    entries = storage.list_saved_reports()
+    if not entries:
+        st.markdown(
+            '<div class="ros-empty"><h3>No saved reports yet.</h3>'
+            "<p>Use \"Save Report\" on a completed research report to keep it here.</p></div>",
+            unsafe_allow_html=True,
+        )
+        return
+    for entry in entries:
+        _render_entry_card(
+            entry,
+            on_primary=_open_entry_for_viewing,
+            primary_label="Open / View",
+            on_delete=storage.delete_saved_report,
+            key_prefix="saved",
+        )
 
 
 # ---------------------------------------------------------------------
@@ -498,13 +582,23 @@ with st.sidebar:
     st.markdown('<div class="ros-nav-label">Navigate</div>', unsafe_allow_html=True)
 
     if st.button("✦  New Research", key="nav-new-research", width="stretch"):
-        for key in ("report_text", "report_topic", "report_sources", "report_sources_are_real"):
+        for key in (
+            "report_text", "report_topic", "report_sources",
+            "report_sources_are_real", "report_depth", "report_timestamp",
+        ):
             st.session_state.pop(key, None)
+        st.session_state["view"] = "research"
+        st.rerun()
+
+    if st.button("⏱  Research History", key="nav-history", width="stretch"):
+        st.session_state["view"] = "history"
+        st.rerun()
+
+    if st.button("▤  Saved Reports", key="nav-saved", width="stretch"):
+        st.session_state["view"] = "saved"
         st.rerun()
 
     for icon, nav_label in [
-        ("⏱", "Research History"),
-        ("▤", "Saved Reports"),
         ("◈", "Sources Library"),
         ("⚙", "Settings"),
     ]:
@@ -561,230 +655,265 @@ st.markdown(
 )
 
 
-# ---------------------------------------------------------------------
-# Hero + research input (the visual focus of the page)
-# ---------------------------------------------------------------------
-st.markdown(
-    """
-    <div class="ros-hero">
-      <h1>Research <span class="accent">anything.</span></h1>
-      <p>Search the web. Analyze evidence. Synthesize insights.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-with st.container(border=True):
-    st.markdown('<div class="ros-card-title">Research Question</div>', unsafe_allow_html=True)
-    topic_input = st.text_input(
-        "Research Topic",
-        placeholder="What would you like to research?",
-        label_visibility="collapsed",
-    )
-
-    st.markdown('<div class="ros-card-title" style="margin-top:1rem;">Research Depth</div>', unsafe_allow_html=True)
-    depth_choice = st.pills(
-        "Research depth",
-        options=["Quick", "Standard", "Detailed"],
-        default="Standard",
-        label_visibility="collapsed",
-        help="Quick uses fewer sources, Detailed uses more sources.",
-    )
-    depth_choice = depth_choice or "Standard"
-
-    st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
-    start_button = st.button("✦  Start Research", key="start-research", type="primary", width="stretch")
-
-
-# ---------------------------------------------------------------------
-# Agent workflow (always visible; reflects real pipeline progress only)
-# ---------------------------------------------------------------------
-st.markdown('<div class="ros-section-label">Agent Workflow</div>', unsafe_allow_html=True)
-with st.container(border=True):
-    workflow_placeholder = st.empty()
-    if "report_text" in st.session_state and not start_button:
-        render_workflow(workflow_placeholder, active_index=len(WORKFLOW_STAGES))
-    else:
-        render_workflow(workflow_placeholder, active_index=-1)
-
-status_placeholder = st.empty()
-
-
-# ---------------------------------------------------------------------
-# Research Blueprint (static explainer -- visual only, no fake wiring)
-# ---------------------------------------------------------------------
-st.markdown('<div class="ros-section-label">Research Blueprint</div>', unsafe_allow_html=True)
-with st.container(border=True):
-    bp_cols = st.columns(4)
-    blueprint_items = [
-        ("🔎", "Smart Search", "Search across real web sources"),
-        ("📚", "Source Collection", "Gather relevant evidence"),
-        ("🧠", "AI Analysis", "Analyze collected information"),
-        ("📄", "Report Generation", "Create a structured research report"),
-    ]
-    for col, (icon, title, desc) in zip(bp_cols, blueprint_items):
-        with col:
-            st.markdown(
-                f"""
-                <div class="ros-feature">
-                  <div class="ros-feature-icon">{icon}</div>
-                  <div class="ros-feature-title">{title}</div>
-                  <div class="ros-feature-desc">{desc}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-
-# ---------------------------------------------------------------------
-# Helper function to run the whole agent workflow and display it
-# ---------------------------------------------------------------------
-def run_research_workflow(topic, depth):
-    """
-    Run every stage of the research agent, one after another, updating
-    the workflow card as it goes. Stores the final report (and the
-    sources used) in Streamlit's session_state so the results/download
-    section can render them after the run finishes -- and again after
-    any later rerun (e.g. clicking a download button).
-    """
-
-    # ---- Stage: Search (plan + live web search) ----
-    render_workflow(workflow_placeholder, active_index=0)
-    with st.spinner("Creating research plan and searching the web..."):
-        plan_steps = research_agent.create_research_plan(topic, depth)
-        sources, sources_are_real, source_error = research_agent.discover_sources(topic, depth)
-
-    if sources_are_real:
-        status_placeholder.caption(f"✓ Found {len(sources)} live source(s) via real-time web search.")
-    elif source_error:
-        status_placeholder.caption(f"⚠ Live search unavailable, using demo sources. ({source_error})")
-    else:
-        status_placeholder.caption("Using demo sources for this run.")
-
-    # ---- Stage: Sources (collection) ----
-    render_workflow(workflow_placeholder, active_index=1)
-    with st.spinner("Collecting information from sources..."):
-        collected_items = research_agent.collect_information(sources)
-
-    # ---- Stage: Analysis ----
-    render_workflow(workflow_placeholder, active_index=2)
-    with st.spinner("Analyzing collected information..."):
-        analysis = research_agent.analyze_information(topic, collected_items)
-
-    if analysis.get("ai_powered") and not analysis.get("ai_error"):
-        status_placeholder.caption("✓ Analysis generated by OpenRouter AI.")
-    elif analysis.get("ai_powered") and analysis.get("ai_error"):
-        status_placeholder.caption(f"⚠ Partially AI-generated analysis — {analysis['ai_error']}")
-    elif analysis.get("ai_error"):
-        status_placeholder.caption(f"⚠ Demo analysis — OpenRouter unavailable ({analysis['ai_error']})")
-    else:
-        status_placeholder.caption("Demo analysis — no API key configured.")
-
-    # ---- Stage: Synthesis ----
-    render_workflow(workflow_placeholder, active_index=3)
-    with st.spinner("Synthesizing findings..."):
-        synthesis = research_agent.synthesize_findings(topic, analysis, sources)
-
-    if synthesis.get("ai_powered") and not synthesis.get("ai_error"):
-        status_placeholder.caption("✓ Synthesis generated by OpenRouter AI.")
-    elif synthesis.get("ai_powered") and synthesis.get("ai_error"):
-        status_placeholder.caption(f"⚠ Partially AI-generated synthesis — {synthesis['ai_error']}")
-    elif synthesis.get("ai_error"):
-        status_placeholder.caption(f"⚠ Demo synthesis — OpenRouter unavailable ({synthesis['ai_error']})")
-    else:
-        status_placeholder.caption("Demo synthesis — no API key configured.")
-
-    # ---- Stage: Report ----
-    render_workflow(workflow_placeholder, active_index=4)
-    with st.spinner("Generating final report..."):
-        report_text = research_agent.generate_report(
-            topic, depth, plan_steps, sources, analysis, synthesis, sources_are_real
-        )
-
-    render_workflow(workflow_placeholder, active_index=len(WORKFLOW_STAGES))
-    status_placeholder.caption("✓ Research complete.")
-
-    # Persist everything the results section needs, so it keeps
-    # rendering correctly across later reruns (e.g. download clicks).
-    st.session_state["report_text"] = report_text
-    st.session_state["report_topic"] = topic
-    st.session_state["report_sources"] = sources
-    st.session_state["report_sources_are_real"] = sources_are_real
-    st.session_state["usage_count"] = st.session_state.get("usage_count", 0) + 1
-
-
-# ---------------------------------------------------------------------
-# Main app logic: what happens when the button is clicked
-# ---------------------------------------------------------------------
-if start_button:
-    # ---- Input validation, so the app never crashes on bad input ----
-    if topic_input is None or topic_input.strip() == "":
-        st.warning("Please enter a research topic before starting.")
-    elif len(topic_input.strip()) < 3:
-        st.warning("Please enter a more descriptive research topic (at least 3 characters).")
-    else:
-        try:
-            run_research_workflow(topic_input.strip(), depth_choice)
-        except Exception as error:
-            # Catch-all so an unexpected issue never crashes the whole app.
-            st.error(f"Something went wrong while running the research agent: {error}")
-
-
-# ---------------------------------------------------------------------
-# Results: the generated report, rendered as clean sectioned cards.
-# Shown whenever a report exists in session_state, so it stays the
-# visual focus even after later reruns (e.g. clicking a download button).
-# ---------------------------------------------------------------------
-if "report_text" in st.session_state:
-    st.markdown('<div class="ros-section-label">Research Report</div>', unsafe_allow_html=True)
-    render_report_cards(
-        st.session_state["report_text"],
-        st.session_state.get("report_sources", []),
-        st.session_state.get("report_sources_are_real", False),
-    )
-elif not start_button:
+if st.session_state["view"] == "history":
+    render_history_view()
+elif st.session_state["view"] == "saved":
+    render_saved_view()
+else:
+    # -------------------------------------------------------------
+    # Hero + research input (the visual focus of the page)
+    # -------------------------------------------------------------
     st.markdown(
-        '<div class="ros-empty"><h3>Your research starts here.</h3>'
-        "<p>Ask a question above and let the agent search the web, "
-        "analyze evidence, and build a structured report.</p></div>",
+        """
+        <div class="ros-hero">
+          <h1>Research <span class="accent">anything.</span></h1>
+          <p>Search the web. Analyze evidence. Synthesize insights.</p>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-
-# ---------------------------------------------------------------------
-# Download buttons (only shown after a report has been generated)
-# ---------------------------------------------------------------------
-if "report_text" in st.session_state:
-    st.markdown('<div class="ros-section-label">Export</div>', unsafe_allow_html=True)
-
-    report_text = st.session_state["report_text"]
-    report_topic = st.session_state["report_topic"]
-    plain_text_report = research_agent.markdown_to_plain_text(report_text)
-
     with st.container(border=True):
-        download_col1, download_col2 = st.columns(2)
-        with download_col1:
-            st.download_button(
-                label="⬇  Download Markdown",
-                data=report_text,
-                file_name="research_report.md",
-                mime="text/markdown",
-                width="stretch",
-            )
-        with download_col2:
-            st.download_button(
-                label="⬇  Download Text",
-                data=plain_text_report,
-                file_name="research_report.txt",
-                mime="text/plain",
-                width="stretch",
+        st.markdown('<div class="ros-card-title">Research Question</div>', unsafe_allow_html=True)
+        topic_input = st.text_input(
+            "Research Topic",
+            placeholder="What would you like to research?",
+            label_visibility="collapsed",
+        )
+
+        st.markdown('<div class="ros-card-title" style="margin-top:1rem;">Research Depth</div>', unsafe_allow_html=True)
+        depth_choice = st.pills(
+            "Research depth",
+            options=["Quick", "Standard", "Detailed"],
+            default="Standard",
+            label_visibility="collapsed",
+            help="Quick uses fewer sources, Detailed uses more sources.",
+        )
+        depth_choice = depth_choice or "Standard"
+
+        st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
+        start_button = st.button("✦  Start Research", key="start-research", type="primary", width="stretch")
+
+    # -------------------------------------------------------------
+    # Agent workflow (always visible; reflects real pipeline progress only)
+    # -------------------------------------------------------------
+    st.markdown('<div class="ros-section-label">Agent Workflow</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        workflow_placeholder = st.empty()
+        if "report_text" in st.session_state and not start_button:
+            render_workflow(workflow_placeholder, active_index=len(WORKFLOW_STAGES))
+        else:
+            render_workflow(workflow_placeholder, active_index=-1)
+
+    status_placeholder = st.empty()
+
+    # -------------------------------------------------------------
+    # Research Blueprint (static explainer -- visual only, no fake wiring)
+    # -------------------------------------------------------------
+    st.markdown('<div class="ros-section-label">Research Blueprint</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        bp_cols = st.columns(4)
+        blueprint_items = [
+            ("🔎", "Smart Search", "Search across real web sources"),
+            ("📚", "Source Collection", "Gather relevant evidence"),
+            ("🧠", "AI Analysis", "Analyze collected information"),
+            ("📄", "Report Generation", "Create a structured research report"),
+        ]
+        for col, (icon, title, desc) in zip(bp_cols, blueprint_items):
+            with col:
+                st.markdown(
+                    f"""
+                    <div class="ros-feature">
+                      <div class="ros-feature-icon">{icon}</div>
+                      <div class="ros-feature-title">{title}</div>
+                      <div class="ros-feature-desc">{desc}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    # -------------------------------------------------------------
+    # Helper function to run the whole agent workflow and display it
+    # -------------------------------------------------------------
+    def run_research_workflow(topic, depth):
+        """
+        Run every stage of the research agent, one after another, updating
+        the workflow card as it goes. Stores the final report (and the
+        sources used) in Streamlit's session_state so the results/download
+        section can render them after the run finishes -- and again after
+        any later rerun (e.g. clicking a download button). Also auto-saves
+        the completed run to Research History.
+        """
+
+        # ---- Stage: Search (plan + live web search) ----
+        render_workflow(workflow_placeholder, active_index=0)
+        with st.spinner("Creating research plan and searching the web..."):
+            plan_steps = research_agent.create_research_plan(topic, depth)
+            sources, sources_are_real, source_error = research_agent.discover_sources(topic, depth)
+
+        if sources_are_real:
+            status_placeholder.caption(f"✓ Found {len(sources)} live source(s) via real-time web search.")
+        elif source_error:
+            status_placeholder.caption(f"⚠ Live search unavailable, using demo sources. ({source_error})")
+        else:
+            status_placeholder.caption("Using demo sources for this run.")
+
+        # ---- Stage: Sources (collection) ----
+        render_workflow(workflow_placeholder, active_index=1)
+        with st.spinner("Collecting information from sources..."):
+            collected_items = research_agent.collect_information(sources)
+
+        # ---- Stage: Analysis ----
+        render_workflow(workflow_placeholder, active_index=2)
+        with st.spinner("Analyzing collected information..."):
+            analysis = research_agent.analyze_information(topic, collected_items)
+
+        if analysis.get("ai_powered") and not analysis.get("ai_error"):
+            status_placeholder.caption("✓ Analysis generated by OpenRouter AI.")
+        elif analysis.get("ai_powered") and analysis.get("ai_error"):
+            status_placeholder.caption(f"⚠ Partially AI-generated analysis — {analysis['ai_error']}")
+        elif analysis.get("ai_error"):
+            status_placeholder.caption(f"⚠ Demo analysis — OpenRouter unavailable ({analysis['ai_error']})")
+        else:
+            status_placeholder.caption("Demo analysis — no API key configured.")
+
+        # ---- Stage: Synthesis ----
+        render_workflow(workflow_placeholder, active_index=3)
+        with st.spinner("Synthesizing findings..."):
+            synthesis = research_agent.synthesize_findings(topic, analysis, sources)
+
+        if synthesis.get("ai_powered") and not synthesis.get("ai_error"):
+            status_placeholder.caption("✓ Synthesis generated by OpenRouter AI.")
+        elif synthesis.get("ai_powered") and synthesis.get("ai_error"):
+            status_placeholder.caption(f"⚠ Partially AI-generated synthesis — {synthesis['ai_error']}")
+        elif synthesis.get("ai_error"):
+            status_placeholder.caption(f"⚠ Demo synthesis — OpenRouter unavailable ({synthesis['ai_error']})")
+        else:
+            status_placeholder.caption("Demo synthesis — no API key configured.")
+
+        # ---- Stage: Report ----
+        render_workflow(workflow_placeholder, active_index=4)
+        with st.spinner("Generating final report..."):
+            report_text = research_agent.generate_report(
+                topic, depth, plan_steps, sources, analysis, synthesis, sources_are_real
             )
 
-        if st.button("Save report to reports/ folder", width="stretch"):
+        render_workflow(workflow_placeholder, active_index=len(WORKFLOW_STAGES))
+        status_placeholder.caption("✓ Research complete.")
+
+        # Persist everything the results section needs, so it keeps
+        # rendering correctly across later reruns (e.g. download clicks).
+        st.session_state["report_text"] = report_text
+        st.session_state["report_topic"] = topic
+        st.session_state["report_sources"] = sources
+        st.session_state["report_sources_are_real"] = sources_are_real
+        st.session_state["report_depth"] = depth
+        st.session_state["report_timestamp"] = datetime.datetime.now().isoformat(timespec="seconds")
+        st.session_state["usage_count"] = st.session_state.get("usage_count", 0) + 1
+
+        # Auto-save every successfully completed research run to History.
+        storage.add_history_entry(topic, depth, sources, sources_are_real, report_text)
+
+    # -------------------------------------------------------------
+    # Main app logic: what happens when the button is clicked
+    # -------------------------------------------------------------
+    if start_button:
+        # ---- Input validation, so the app never crashes on bad input ----
+        if topic_input is None or topic_input.strip() == "":
+            st.warning("Please enter a research topic before starting.")
+        elif len(topic_input.strip()) < 3:
+            st.warning("Please enter a more descriptive research topic (at least 3 characters).")
+        else:
             try:
-                saved_path = research_agent.save_report_to_file(
-                    report_text, report_topic, "md"
-                )
-                st.success(f"Report saved to: {saved_path}")
+                run_research_workflow(topic_input.strip(), depth_choice)
             except Exception as error:
-                st.error(f"Could not save report: {error}")
+                # Catch-all so an unexpected issue never crashes the whole app.
+                st.error(f"Something went wrong while running the research agent: {error}")
+
+    # -------------------------------------------------------------
+    # Results: the generated report, rendered as clean sectioned cards.
+    # Shown whenever a report exists in session_state, so it stays the
+    # visual focus even after later reruns (e.g. clicking a download button).
+    # -------------------------------------------------------------
+    if "report_text" in st.session_state:
+        st.markdown('<div class="ros-section-label">Research Report</div>', unsafe_allow_html=True)
+        render_report_cards(
+            st.session_state["report_text"],
+            st.session_state.get("report_sources", []),
+            st.session_state.get("report_sources_are_real", False),
+        )
+    elif not start_button:
+        st.markdown(
+            '<div class="ros-empty"><h3>Your research starts here.</h3>'
+            "<p>Ask a question above and let the agent search the web, "
+            "analyze evidence, and build a structured report.</p></div>",
+            unsafe_allow_html=True,
+        )
+
+    # -------------------------------------------------------------
+    # Export buttons (only shown after a report has been generated)
+    # -------------------------------------------------------------
+    if "report_text" in st.session_state:
+        st.markdown('<div class="ros-section-label">Export</div>', unsafe_allow_html=True)
+
+        report_text = st.session_state["report_text"]
+        report_topic = st.session_state["report_topic"]
+        report_sources = st.session_state.get("report_sources", [])
+        report_sources_are_real = st.session_state.get("report_sources_are_real", False)
+        report_depth = st.session_state.get("report_depth", "Standard")
+        report_timestamp = st.session_state.get(
+            "report_timestamp", datetime.datetime.now().isoformat(timespec="seconds")
+        )
+        plain_text_report = research_agent.markdown_to_plain_text(report_text)
+
+        with st.container(border=True):
+            download_col1, download_col2 = st.columns(2)
+            with download_col1:
+                st.download_button(
+                    label="⬇  Download Markdown",
+                    data=report_text,
+                    file_name="research_report.md",
+                    mime="text/markdown",
+                    width="stretch",
+                )
+            with download_col2:
+                st.download_button(
+                    label="⬇  Download Text",
+                    data=plain_text_report,
+                    file_name="research_report.txt",
+                    mime="text/plain",
+                    width="stretch",
+                )
+
+            pdf_col, save_col = st.columns(2)
+            with pdf_col:
+                pdf_bytes = pdf_export.generate_pdf(
+                    report_topic,
+                    _format_timestamp(report_timestamp),
+                    report_depth,
+                    report_text,
+                    report_sources,
+                    report_sources_are_real,
+                )
+                st.download_button(
+                    label="⬇  Download PDF",
+                    data=pdf_bytes,
+                    file_name="research_report.pdf",
+                    mime="application/pdf",
+                    width="stretch",
+                )
+            with save_col:
+                if st.button("★  Save Report", key="save-report", width="stretch"):
+                    storage.add_saved_report(
+                        report_topic, report_depth, report_sources, report_sources_are_real, report_text
+                    )
+                    st.success("Report saved. Find it under Saved Reports.")
+
+            if st.button("Save report to reports/ folder", width="stretch"):
+                try:
+                    saved_path = research_agent.save_report_to_file(
+                        report_text, report_topic, "md"
+                    )
+                    st.success(f"Report saved to: {saved_path}")
+                except Exception as error:
+                    st.error(f"Could not save report: {error}")
