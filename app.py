@@ -557,6 +557,129 @@ def render_saved_view():
         )
 
 
+def _collect_all_sources():
+    """
+    Aggregate every real/demo source actually seen across Research History
+    and Saved Reports (the only place source data is persisted), deduped
+    by URL. No source is invented here -- every entry already came from
+    the real research pipeline (web_search.py) or its documented demo
+    fallback, exactly as recorded at the time that run completed.
+    """
+    seen = {}
+    for entry in storage.list_history() + storage.list_saved_reports():
+        for source in entry.get("sources", []):
+            url = source.get("url")
+            if not url or url in seen:
+                continue
+            seen[url] = {
+                "name": source.get("name", ""),
+                "domain": source.get("topic", ""),
+                "summary": source.get("summary", ""),
+                "url": url,
+                "research_topic": entry.get("question", ""),
+                "timestamp": entry.get("timestamp", ""),
+                "is_real": entry.get("sources_are_real", False),
+            }
+    return sorted(seen.values(), key=lambda s: s["timestamp"], reverse=True)
+
+
+def render_sources_library_view():
+    st.markdown('<div class="ros-section-label">Sources Library</div>', unsafe_allow_html=True)
+    all_sources = _collect_all_sources()
+
+    if not all_sources:
+        st.markdown(
+            '<div class="ros-empty"><h3>No sources yet.</h3>'
+            "<p>Sources collected during research runs (Research History and "
+            "Saved Reports) will appear here automatically.</p></div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    query = st.text_input(
+        "Search sources",
+        placeholder="Filter by source name, domain, or research topic...",
+        label_visibility="collapsed",
+    ).strip().lower()
+
+    if query:
+        all_sources = [
+            s for s in all_sources
+            if query in s["name"].lower()
+            or query in s["domain"].lower()
+            or query in s["research_topic"].lower()
+        ]
+
+    if not all_sources:
+        st.caption("No sources match that search.")
+        return
+
+    for source in all_sources:
+        with st.container(border=True):
+            badge_class = "live" if source["is_real"] else "demo"
+            badge_label = "LIVE SOURCE" if source["is_real"] else "DEMO SOURCE"
+            st.markdown(
+                '<div class="ros-source-top">'
+                f'<div class="ros-source-title">{html.escape(source["name"])}</div>'
+                f'<span class="ros-badge {badge_class}">{badge_label}</span>'
+                "</div>"
+                f'<div class="ros-source-domain">{html.escape(source["domain"])}</div>'
+                f'<div class="ros-source-summary">From research: '
+                f'<i>{html.escape(source["research_topic"])}</i> &middot; '
+                f'{html.escape(_format_timestamp(source["timestamp"]))}</div>',
+                unsafe_allow_html=True,
+            )
+            link_col, _ = st.columns([1, 3])
+            with link_col:
+                st.link_button("Open Source ↗", source["url"], width="stretch")
+
+
+def render_settings_view():
+    st.markdown('<div class="ros-section-label">Settings</div>', unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown('<div class="ros-card-title">Research Preferences</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="ros-report-meta">Research depth controls how many sources '
+            "are gathered per run. This is chosen per-research on the New Research "
+            "screen; there is no separate saved default.</div>",
+            unsafe_allow_html=True,
+        )
+        for depth_name, source_count in research_agent.SOURCE_COUNT_BY_DEPTH.items():
+            st.markdown(
+                f'<div class="ros-stat-row"><span>{html.escape(depth_name)}</span>'
+                f'<span>{source_count} source(s)</span></div>',
+                unsafe_allow_html=True,
+            )
+
+    with st.container(border=True):
+        st.markdown('<div class="ros-card-title">Connection Status</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="ros-stat-row"><span>Live Web Search</span>'
+            f'<span><span class="ros-dot"></span>Always available (no API key required)</span></div>'
+            f'<div class="ros-stat-row"><span>OpenRouter AI Engine</span>'
+            f'<span><span class="ros-dot{"" if _engine_online else " off"}"></span>'
+            f'{"Connected" if _engine_online else "Not connected"}</span></div>',
+            unsafe_allow_html=True,
+        )
+        if _engine_online:
+            st.caption(f"Model: {_model_name}")
+        else:
+            st.caption("Add OPENROUTER_API_KEY to your .env file to enable AI analysis/synthesis.")
+
+    with st.container(border=True):
+        st.markdown('<div class="ros-card-title">About</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="ros-report-meta">'
+            "<b>ResearchOS</b> — Mini AI Research Agent<br>"
+            "Combines real-time web search with AI-powered analysis and synthesis "
+            "to generate structured research reports.<br><br>"
+            f"{html.escape(research_agent.VERIFICATION_NOTICE)}"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+
 # ---------------------------------------------------------------------
 # Sidebar: branding, navigation, and real (derived, not fabricated)
 # status information.
@@ -598,15 +721,13 @@ with st.sidebar:
         st.session_state["view"] = "saved"
         st.rerun()
 
-    for icon, nav_label in [
-        ("◈", "Sources Library"),
-        ("⚙", "Settings"),
-    ]:
-        st.markdown(
-            f'<div class="ros-nav-item"><span><span class="ros-nav-icon">{icon}</span>{nav_label}</span>'
-            '<span class="ros-nav-soon">Soon</span></div>',
-            unsafe_allow_html=True,
-        )
+    if st.button("◈  Sources Library", key="nav-sources", width="stretch"):
+        st.session_state["view"] = "sources"
+        st.rerun()
+
+    if st.button("⚙  Settings", key="nav-settings", width="stretch"):
+        st.session_state["view"] = "settings"
+        st.rerun()
 
     usage_count = min(st.session_state["usage_count"], 50)
     usage_pct = round((usage_count / 50) * 100)
@@ -659,6 +780,10 @@ if st.session_state["view"] == "history":
     render_history_view()
 elif st.session_state["view"] == "saved":
     render_saved_view()
+elif st.session_state["view"] == "sources":
+    render_sources_library_view()
+elif st.session_state["view"] == "settings":
+    render_settings_view()
 else:
     # -------------------------------------------------------------
     # Hero + research input (the visual focus of the page)
