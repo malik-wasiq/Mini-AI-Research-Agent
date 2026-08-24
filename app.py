@@ -27,65 +27,42 @@ st.set_page_config(page_title="ResearchOS", page_icon="✦", layout="wide")
 
 
 # ---------------------------------------------------------------------
-# Theme: dark (default) + light, toggled from the sidebar. The sidebar
-# itself always stays dark (a fixed --sb-* palette below) -- only the
-# main content surface/text swap, which keeps this a small, bounded
-# change instead of a full re-theme. Presentation only -- nothing here
+# Global styling: a single refined dark theme (premium, minimal, not
+# flashy), animated ambient background, glassmorphism cards with real
+# depth, sidebar dashboard chrome. Presentation only -- nothing here
 # touches the research pipeline.
 # ---------------------------------------------------------------------
-st.session_state.setdefault("theme", "dark")
-
-_THEMES = {
-    "dark": {
-        "bg": "#05060d", "bg-soft": "#0a0c18",
-        "panel": "rgba(255,255,255,0.035)", "panel-strong": "rgba(255,255,255,0.055)",
-        "fill-faint": "rgba(255,255,255,0.028)",
-        "border": "rgba(255,255,255,0.09)", "border-soft": "rgba(255,255,255,0.06)",
-        "text": "#eceefb", "body-text": "#d6d8ee",
-        "muted": "#8d90ad", "muted-soft": "#6b6e8a",
-        "heading-accent": "#bcd0ff", "link": "#8fa8ff",
-        "badge-live": "#3ddc97", "badge-demo": "#f0b45b",
-        "grid-line": "rgba(255,255,255,0.025)",
-    },
-    "light": {
-        "bg": "#f3f4fa", "bg-soft": "#ffffff",
-        "panel": "rgba(20,22,50,0.035)", "panel-strong": "rgba(20,22,50,0.06)",
-        "fill-faint": "rgba(20,22,50,0.032)",
-        "border": "rgba(20,22,50,0.12)", "border-soft": "rgba(20,22,50,0.08)",
-        "text": "#15172a", "body-text": "#32344a",
-        "muted": "#585b78", "muted-soft": "#71749a",
-        "heading-accent": "#3f4fc0", "link": "#3457d5",
-        "badge-live": "#0e9a61", "badge-demo": "#9c650d",
-        "grid-line": "rgba(20,22,50,0.035)",
-    },
-}
-_theme_vars = _THEMES[st.session_state["theme"]]
-_root_vars = "\n".join(f"        --{name}:{value};" for name, value in _theme_vars.items())
-
-# Built separately (as its own small f-string) so the much larger plain
-# CSS string below never needs every literal { and } escaped.
-_root_css = f"""
+st.markdown(
+    """
     <style>
-    :root{{
-{_root_vars}
+    :root{
+        --bg:#06070d;
+        --panel:rgba(255,255,255,0.04);
+        --panel-strong:rgba(255,255,255,0.065);
+        --fill-faint:rgba(255,255,255,0.03);
+        --border:rgba(255,255,255,0.10);
+        --border-soft:rgba(255,255,255,0.06);
+        --text:#f3f4fc;
+        --body-text:#d7d9ec;
+        --muted:#9295b4;
+        --muted-soft:#6d7093;
+        --heading-accent:#b9c9ff;
+        --link:#93abff;
+        --badge-live:#3ddc97;
+        --badge-demo:#f0b45b;
+        --grid-line:rgba(255,255,255,0.022);
         --blue:#5b7cfa;
         --indigo:#7c6cf0;
-        --violet:#a35bf0;
+        --violet:#9a63e8;
         --ok:#3ddc97;
         --warn:#f0b45b;
         --radius:16px;
-        /* Sidebar always stays dark, regardless of theme, so its own
-           fixed palette never swaps with the main content above. */
-        --sb-text:#eceefb; --sb-muted:#8d90ad; --sb-muted-soft:#6b6e8a;
-        --sb-border:rgba(255,255,255,0.09); --sb-border-soft:rgba(255,255,255,0.06);
-        --sb-panel-strong:rgba(255,255,255,0.055);
-    }}
-    [data-testid="stSidebar"]{{ color:var(--sb-text); }}
-    """
+        --radius-sm:10px;
+        --ease:cubic-bezier(.4,0,.2,1);
+        --shadow-card:0 1px 2px rgba(0,0,0,0.35), 0 12px 32px -16px rgba(0,0,0,0.6);
+        --shadow-card-hover:0 2px 6px rgba(0,0,0,0.4), 0 18px 42px -16px rgba(91,124,250,0.22);
+    }
 
-st.markdown(
-    _root_css
-    + """
     @media (prefers-reduced-motion: reduce){
         *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important;
            transition-duration:0.001ms !important; }
@@ -110,29 +87,30 @@ st.markdown(
         position:absolute;
         z-index:0;
         border-radius:50%;
-        filter:blur(90px);
-        opacity:0.55;
+        filter:blur(110px);
+        opacity:0.4;
         pointer-events:none;
+        will-change:transform;
     }
     .stApp::before{
-        width:46vw; height:46vw;
-        top:-14vw; left:-10vw;
-        background:radial-gradient(circle at 30% 30%, rgba(91,124,250,0.55), rgba(91,124,250,0) 70%);
-        animation:ros-drift-a 26s ease-in-out infinite;
+        width:44vw; height:44vw;
+        top:-16vw; left:-12vw;
+        background:radial-gradient(circle at 30% 30%, rgba(91,124,250,0.5), rgba(91,124,250,0) 70%);
+        animation:ros-drift-a 36s ease-in-out infinite;
     }
     .stApp::after{
-        width:40vw; height:40vw;
-        bottom:-16vw; right:-8vw;
-        background:radial-gradient(circle at 60% 60%, rgba(163,91,240,0.5), rgba(163,91,240,0) 70%);
-        animation:ros-drift-b 32s ease-in-out infinite;
+        width:38vw; height:38vw;
+        bottom:-18vw; right:-10vw;
+        background:radial-gradient(circle at 60% 60%, rgba(154,99,232,0.42), rgba(154,99,232,0) 70%);
+        animation:ros-drift-b 42s ease-in-out infinite;
     }
     @keyframes ros-drift-a{
         0%,100%{ transform:translate(0,0) scale(1); }
-        50%{ transform:translate(4vw,3vw) scale(1.08); }
+        50%{ transform:translate(3vw,2.5vw) scale(1.06); }
     }
     @keyframes ros-drift-b{
         0%,100%{ transform:translate(0,0) scale(1); }
-        50%{ transform:translate(-3vw,-4vw) scale(1.1); }
+        50%{ transform:translate(-2.5vw,-3vw) scale(1.08); }
     }
 
     .ros-grid-layer{
@@ -153,7 +131,7 @@ st.markdown(
     /* ---- Sidebar ---- */
     [data-testid="stSidebar"]{
         background:linear-gradient(180deg, #090a15 0%, #06070f 100%);
-        border-right:1px solid var(--sb-border-soft);
+        border-right:1px solid var(--border-soft);
     }
     [data-testid="stSidebar"] > div{ padding-top:1.4rem; }
 
@@ -164,48 +142,42 @@ st.markdown(
         display:flex; align-items:center; justify-content:center;
         font-size:1.05rem; color:#fff; box-shadow:0 0 18px rgba(124,108,240,0.55);
     }
-    .ros-logo-text{ font-size:1.08rem; font-weight:700; letter-spacing:-0.01em; color:var(--sb-text); }
-    .ros-logo-sub{ font-size:0.72rem; color:var(--sb-muted); letter-spacing:0.02em; margin-top:-2px; }
+    .ros-logo-text{ font-size:1.08rem; font-weight:700; letter-spacing:-0.01em; color:var(--text); }
+    .ros-logo-sub{ font-size:0.72rem; color:var(--muted); letter-spacing:0.02em; margin-top:-2px; }
 
     .ros-nav-label{ font-size:0.68rem; letter-spacing:0.1em; text-transform:uppercase;
-        color:var(--sb-muted-soft); margin:1.5rem 0 0.5rem 0.2rem; }
-
-    .st-key-theme-toggle button{
-        width:100%; border-radius:10px; font-weight:500;
-        background:var(--sb-panel-strong) !important; border:1px solid var(--sb-border) !important;
-        color:var(--sb-text) !important;
-    }
+        color:var(--muted-soft); margin:1.5rem 0 0.5rem 0.2rem; }
 
     [data-testid="stSidebar"] .stButton button{
         width:100%; text-align:left; justify-content:flex-start;
-        background:transparent; border:1px solid transparent; color:var(--sb-text);
+        background:transparent; border:1px solid transparent; color:var(--text);
         font-weight:500; border-radius:10px; padding:0.5rem 0.7rem;
         box-shadow:none; transition:background 0.2s ease, border-color 0.2s ease;
     }
     [data-testid="stSidebar"] .stButton button:hover{
-        background:var(--sb-panel-strong); border-color:var(--sb-border);
+        background:var(--panel-strong); border-color:var(--border);
         color:#fff;
     }
 
     .ros-nav-item{
         display:flex; align-items:center; justify-content:space-between;
         gap:0.5rem; padding:0.5rem 0.7rem; border-radius:10px;
-        color:var(--sb-muted-soft); font-size:0.88rem; font-weight:500;
+        color:var(--muted-soft); font-size:0.88rem; font-weight:500;
         margin-bottom:0.15rem;
     }
     .ros-nav-item .ros-nav-icon{ opacity:0.7; margin-right:0.55rem; }
     .ros-nav-soon{
         font-size:0.6rem; letter-spacing:0.05em; text-transform:uppercase;
-        color:var(--sb-muted-soft); border:1px solid var(--sb-border);
+        color:var(--muted-soft); border:1px solid var(--border);
         border-radius:999px; padding:0.1rem 0.45rem;
     }
 
     .ros-sidebar-panel{
-        border-top:1px solid var(--sb-border-soft); margin-top:1.6rem; padding-top:1.1rem;
+        border-top:1px solid var(--border-soft); margin-top:1.6rem; padding-top:1.1rem;
     }
     .ros-stat-row{ display:flex; align-items:center; justify-content:space-between;
-        font-size:0.78rem; color:var(--sb-muted); margin-bottom:0.55rem; }
-    .ros-stat-label{ text-transform:uppercase; letter-spacing:0.06em; font-size:0.66rem; color:var(--sb-muted-soft); }
+        font-size:0.78rem; color:var(--muted); margin-bottom:0.55rem; }
+    .ros-stat-label{ text-transform:uppercase; letter-spacing:0.06em; font-size:0.66rem; color:var(--muted-soft); }
 
     /* Theme-aware equivalent of .ros-stat-row, for main-content cards
        (e.g. Settings) rather than the always-dark sidebar. */
@@ -235,28 +207,41 @@ st.markdown(
     }
 
     /* ---- Hero ---- */
-    .ros-hero{ margin:0.6rem 0 1.8rem 0; }
-    .ros-hero h1{ font-size:2.6rem; font-weight:750; letter-spacing:-0.03em; margin:0 0 0.5rem 0; color:var(--text); }
+    .ros-hero{ margin:0.9rem 0 2rem 0; }
+    .ros-hero-eyebrow{
+        display:inline-flex; align-items:center; gap:0.45rem;
+        font-size:0.7rem; letter-spacing:0.14em; text-transform:uppercase; font-weight:700;
+        color:var(--muted-soft); margin-bottom:0.9rem;
+    }
+    .ros-hero-eyebrow .ros-hero-dot{
+        width:6px; height:6px; border-radius:50%;
+        background:linear-gradient(135deg, var(--blue), var(--violet));
+        box-shadow:0 0 10px rgba(124,108,240,0.7);
+    }
+    .ros-hero h1{ font-size:2.9rem; font-weight:700; letter-spacing:-0.035em; line-height:1.1;
+        margin:0 0 0.65rem 0; color:var(--text); }
     .ros-hero .accent{
         background:linear-gradient(90deg, var(--blue), var(--violet));
         -webkit-background-clip:text; background-clip:text; color:transparent;
     }
-    .ros-hero p{ color:var(--muted); font-size:1.05rem; margin:0; }
+    .ros-hero p{ color:var(--muted); font-size:1.08rem; margin:0; max-width:36rem; line-height:1.55; }
 
-    /* ---- Generic glass card ---- */
+    /* ---- Generic glass card: real depth via layered shadow, not just a border ---- */
     [data-testid="stVerticalBlockBorderWrapper"]{
         background:var(--panel) !important;
         border:1px solid var(--border) !important;
         border-radius:var(--radius) !important;
-        backdrop-filter:blur(10px);
-        transition:border-color 0.35s ease, box-shadow 0.35s ease, transform 0.35s ease;
+        backdrop-filter:blur(14px);
+        box-shadow:var(--shadow-card);
+        transition:border-color 0.3s var(--ease), box-shadow 0.3s var(--ease), transform 0.3s var(--ease);
     }
     [data-testid="stVerticalBlockBorderWrapper"]:hover{
-        border-color:rgba(124,108,240,0.4) !important;
-        box-shadow:0 0 28px rgba(91,124,250,0.12);
+        border-color:rgba(124,108,240,0.35) !important;
+        box-shadow:var(--shadow-card-hover);
+        transform:translateY(-1px);
     }
     div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlockBorderWrapper"]{
-        padding:0;
+        padding:0; box-shadow:none; transform:none;
     }
 
     .ros-card-title{ font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
@@ -264,52 +249,62 @@ st.markdown(
 
     /* ---- Inputs ---- */
     div[data-testid="stTextInput"] input{
-        border:1px solid var(--border); border-radius:12px; background:var(--fill-faint);
+        border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--fill-faint);
         color:var(--text); font-size:1.05rem; padding:0.75rem 1rem;
+        transition:border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
     }
     div[data-testid="stTextInput"] input:focus{
-        border-color:rgba(124,108,240,0.6); box-shadow:0 0 0 3px rgba(124,108,240,0.15);
+        border-color:rgba(124,108,240,0.55); box-shadow:0 0 0 3px rgba(91,124,250,0.13);
     }
     div[data-testid="stTextInput"] input::placeholder{ color:var(--muted-soft); }
 
     /* Research question textarea -- Enter submits, Shift+Enter adds a line */
     .st-key-topic-input textarea{
-        border:1px solid var(--border); border-radius:12px; background:var(--fill-faint);
-        color:var(--text); font-size:1.05rem; padding:0.75rem 1rem; resize:none;
+        border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--fill-faint);
+        color:var(--text); font-size:1.08rem; padding:0.85rem 1.1rem; resize:none;
+        transition:border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
     }
     .st-key-topic-input textarea:focus{
-        border-color:rgba(124,108,240,0.6); box-shadow:0 0 0 3px rgba(124,108,240,0.15);
+        border-color:rgba(124,108,240,0.55); box-shadow:0 0 0 3px rgba(91,124,250,0.13);
     }
     .st-key-topic-input textarea::placeholder{ color:var(--muted-soft); }
     .st-key-topic-input [data-testid="stWidgetInstructions"]{ display:none; }
-    .ros-input-hint{ font-size:0.72rem; color:var(--muted-soft); margin-top:0.4rem; }
+    .ros-input-hint{ display:flex; align-items:center; gap:0.35rem;
+        font-size:0.72rem; color:var(--muted-soft); margin-top:0.55rem; }
+    .ros-kbd{ display:inline-flex; align-items:center; justify-content:center;
+        font-family:inherit; font-size:0.68rem; font-weight:600; color:var(--muted);
+        background:var(--fill-faint); border:1px solid var(--border-soft); border-radius:5px;
+        padding:0.08rem 0.4rem; }
 
     /* Depth pills (st.pills) */
     div[data-testid="stPills"] button{
         border-radius:999px !important; border:1px solid var(--border) !important;
         background:var(--fill-faint) !important; color:var(--muted) !important;
+        transition:background 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease) !important;
     }
     div[data-testid="stPills"] button[aria-checked="true"]{
-        background:linear-gradient(90deg, rgba(91,124,250,0.35), rgba(163,91,240,0.35)) !important;
-        border-color:rgba(124,108,240,0.6) !important; color:#fff !important;
+        background:linear-gradient(90deg, rgba(91,124,250,0.32), rgba(154,99,232,0.32)) !important;
+        border-color:rgba(124,108,240,0.55) !important; color:#fff !important;
     }
 
     /* ---- Buttons ---- */
     .stButton button, .stDownloadButton button{
-        border-radius:12px; border:1px solid var(--border);
+        border-radius:var(--radius-sm); border:1px solid var(--border);
         background:var(--panel-strong); color:var(--text); font-weight:600;
-        transition:all 0.25s ease;
+        transition:border-color 0.25s var(--ease), box-shadow 0.25s var(--ease),
+            transform 0.25s var(--ease), color 0.25s var(--ease);
     }
     .st-key-start-research button{
         background:linear-gradient(90deg, var(--blue), var(--violet)) !important;
         border:none !important; color:#fff !important; font-size:1.02rem !important;
-        box-shadow:0 6px 24px rgba(124,108,240,0.35);
+        font-weight:650 !important;
+        box-shadow:0 4px 16px rgba(91,124,250,0.3);
     }
     .st-key-start-research button:hover{
-        box-shadow:0 8px 32px rgba(124,108,240,0.55); transform:translateY(-1px);
+        box-shadow:0 8px 26px rgba(91,124,250,0.42); transform:translateY(-1px);
     }
     .stDownloadButton button:hover, .stButton button:hover{
-        border-color:rgba(124,108,240,0.5); color:#fff;
+        border-color:rgba(124,108,240,0.5); color:#fff; transform:translateY(-1px);
     }
 
     /* ---- Empty state ---- */
@@ -344,15 +339,15 @@ st.markdown(
     .ros-wf-stage.active .ros-wf-circle{
         border-color:transparent; color:#fff;
         background:linear-gradient(135deg, var(--blue), var(--violet));
-        box-shadow:0 0 0 5px rgba(124,108,240,0.16), 0 0 18px rgba(124,108,240,0.5);
-        animation:ros-pulse-ring 1.8s ease-in-out infinite;
+        box-shadow:0 0 0 4px rgba(91,124,250,0.14), 0 0 14px rgba(91,124,250,0.4);
+        animation:ros-pulse-ring 2.2s ease-in-out infinite;
     }
     .ros-wf-stage.done .ros-wf-circle{
         border-color:rgba(61,220,151,0.5); color:var(--ok); background:rgba(61,220,151,0.08);
     }
     @keyframes ros-pulse-ring{
-        0%,100%{ box-shadow:0 0 0 5px rgba(124,108,240,0.16), 0 0 18px rgba(124,108,240,0.5); }
-        50%{ box-shadow:0 0 0 8px rgba(124,108,240,0.08), 0 0 26px rgba(124,108,240,0.65); }
+        0%,100%{ box-shadow:0 0 0 4px rgba(91,124,250,0.14), 0 0 14px rgba(91,124,250,0.4); }
+        50%{ box-shadow:0 0 0 7px rgba(91,124,250,0.07), 0 0 20px rgba(91,124,250,0.5); }
     }
     @keyframes ros-fade-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:translateY(0); } }
     .ros-wf-label{ font-size:0.78rem; font-weight:700; letter-spacing:0.03em; color:var(--text); }
@@ -361,13 +356,19 @@ st.markdown(
 
     /* ---- Blueprint feature cards ---- */
     .ros-feature{
-        border:1px solid var(--border-soft); border-radius:14px; padding:1rem 1.05rem;
-        background:var(--fill-faint); height:100%; transition:border-color 0.3s ease, transform 0.3s ease;
+        border:1px solid var(--border-soft); border-radius:14px; padding:1.1rem 1.15rem;
+        background:var(--fill-faint); height:100%;
+        transition:border-color 0.3s var(--ease), transform 0.3s var(--ease), background 0.3s var(--ease);
     }
-    .ros-feature:hover{ border-color:rgba(124,108,240,0.4); transform:translateY(-2px); }
+    .ros-feature:hover{ border-color:rgba(124,108,240,0.35); transform:translateY(-2px); background:var(--panel); }
     .ros-feature-icon{ font-size:1.15rem; margin-bottom:0.5rem; }
     .ros-feature-title{ font-size:0.88rem; font-weight:650; color:var(--text); margin-bottom:0.25rem; }
     .ros-feature-desc{ font-size:0.78rem; color:var(--muted); line-height:1.45; }
+
+    /* ---- History / Saved Reports entry cards ---- */
+    .ros-entry-title{ font-size:1rem; font-weight:650; color:var(--text); margin-bottom:0.3rem;
+        line-height:1.4; }
+    .ros-entry-meta{ font-size:0.78rem; color:var(--muted-soft); margin-bottom:0.6rem; }
 
     /* ---- Report sections ---- */
     .ros-report-meta{ font-size:0.85rem; color:var(--muted); line-height:1.6; margin-bottom:0.5rem; }
@@ -391,13 +392,13 @@ st.markdown(
 
     /* ---- Source cards ---- */
     .ros-source-card{
-        border:1px solid var(--border-soft); border-radius:12px; padding:0.85rem 1rem;
+        border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:0.9rem 1.05rem;
         background:var(--fill-faint); margin-bottom:0.65rem;
-        transition:border-color 0.25s ease, transform 0.25s ease;
+        transition:border-color 0.25s var(--ease), transform 0.25s var(--ease), background 0.25s var(--ease);
     }
-    .ros-source-card:hover{ border-color:rgba(124,108,240,0.35); transform:translateY(-1px); }
-    .ros-source-top{ display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.3rem; }
-    .ros-source-title{ font-weight:650; font-size:0.9rem; color:var(--text); }
+    .ros-source-card:hover{ border-color:rgba(124,108,240,0.3); transform:translateY(-1px); background:var(--panel); }
+    .ros-source-top{ display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.35rem; }
+    .ros-source-title{ font-weight:650; font-size:0.92rem; color:var(--text); }
     .ros-badge{ font-size:0.6rem; letter-spacing:0.04em; text-transform:uppercase; font-weight:700;
         border-radius:999px; padding:0.12rem 0.5rem; flex-shrink:0; white-space:nowrap; }
     .ros-badge.live{ color:var(--badge-live); background:rgba(61,220,151,0.12); border:1px solid rgba(61,220,151,0.35); }
@@ -567,8 +568,8 @@ def _render_entry_card(entry, on_primary, primary_label, on_delete, key_prefix):
     with st.container(border=True):
         title = entry.get("title") or entry["question"]
         st.markdown(
-            f'<div class="ros-report-meta"><b>{html.escape(title)}</b><br>'
-            f'{html.escape(_format_timestamp(entry["timestamp"]))} &middot; '
+            f'<div class="ros-entry-title">{html.escape(title)}</div>'
+            f'<div class="ros-entry-meta">{html.escape(_format_timestamp(entry["timestamp"]))} &middot; '
             f'{html.escape(entry["depth"])} &middot; {entry["source_count"]} source(s)</div>',
             unsafe_allow_html=True,
         )
@@ -793,12 +794,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    _theme_icon = "🌙" if st.session_state["theme"] == "dark" else "☀️"
-    _theme_label = "Dark Mode" if st.session_state["theme"] == "dark" else "Light Mode"
-    if st.button(f"{_theme_icon}  {_theme_label}", key="theme-toggle", width="stretch"):
-        st.session_state["theme"] = "light" if st.session_state["theme"] == "dark" else "dark"
-        st.rerun()
-
     st.markdown('<div class="ros-nav-label">Navigate</div>', unsafe_allow_html=True)
 
     if st.button("✦  New Research", key="nav-new-research", width="stretch"):
@@ -835,9 +830,10 @@ with st.sidebar:
     _active_nav_key = _nav_key_by_view.get(st.session_state["view"], "nav-new-research")
     st.markdown(
         f"<style>.st-key-{_active_nav_key} button{{"
-        "background:linear-gradient(90deg, rgba(91,124,250,0.22), rgba(163,91,240,0.22)) !important;"
-        "border:1px solid rgba(124,108,240,0.45) !important; color:#fff !important; "
-        "font-weight:600 !important;}}</style>",
+        "background:linear-gradient(90deg, rgba(91,124,250,0.16), rgba(154,99,232,0.16)) !important;"
+        "border:1px solid rgba(124,108,240,0.4) !important; color:#fff !important; "
+        "font-weight:600 !important; "
+        "box-shadow:inset 2.5px 0 0 0 var(--blue) !important;}}</style>",
         unsafe_allow_html=True,
     )
 
@@ -851,7 +847,7 @@ with st.sidebar:
           <div class="ros-stat-row">
             <span class="ros-stat-label">AI Engine Status</span>
           </div>
-          <div style="margin-bottom:1.1rem; font-size:0.85rem; color:var(--sb-text);">
+          <div style="margin-bottom:1.1rem; font-size:0.85rem; color:var(--text);">
             <span class="ros-dot{'' if _engine_online else ' off'}"></span>
             {'Online' if _engine_online else 'Offline'}
           </div>
@@ -859,7 +855,7 @@ with st.sidebar:
           <div class="ros-stat-row">
             <span class="ros-stat-label">Session Usage</span>
           </div>
-          <div style="font-size:0.85rem; color:var(--sb-text); margin-bottom:0.2rem;">
+          <div style="font-size:0.85rem; color:var(--text); margin-bottom:0.2rem;">
             {usage_count} / 50 requests
           </div>
           <div class="ros-usage-track">
@@ -903,6 +899,7 @@ else:
     st.markdown(
         """
         <div class="ros-hero">
+          <div class="ros-hero-eyebrow"><span class="ros-hero-dot"></span>AI Research Agent</div>
           <h1>Research <span class="accent">anything.</span></h1>
           <p>Search the web. Analyze evidence. Synthesize insights.</p>
         </div>
@@ -920,7 +917,12 @@ else:
             height=68,
         )
         st.markdown(
-            '<div class="ros-input-hint">⏎ Enter to start &middot; Shift + ⏎ for a new line</div>',
+            '<div class="ros-input-hint">'
+            '<span class="ros-kbd">Enter</span><span>to start</span>'
+            '<span style="opacity:0.4;">&middot;</span>'
+            '<span class="ros-kbd">Shift</span><span>+</span><span class="ros-kbd">Enter</span>'
+            "<span>for a new line</span>"
+            "</div>",
             unsafe_allow_html=True,
         )
 
