@@ -27,31 +27,65 @@ st.set_page_config(page_title="ResearchOS", page_icon="✦", layout="wide")
 
 
 # ---------------------------------------------------------------------
-# Global styling: dark futuristic theme, animated ambient background,
-# glassmorphism cards, sidebar dashboard chrome. Presentation only --
-# nothing here touches the research pipeline.
+# Theme: dark (default) + light, toggled from the sidebar. The sidebar
+# itself always stays dark (a fixed --sb-* palette below) -- only the
+# main content surface/text swap, which keeps this a small, bounded
+# change instead of a full re-theme. Presentation only -- nothing here
+# touches the research pipeline.
 # ---------------------------------------------------------------------
-st.markdown(
-    """
+st.session_state.setdefault("theme", "dark")
+
+_THEMES = {
+    "dark": {
+        "bg": "#05060d", "bg-soft": "#0a0c18",
+        "panel": "rgba(255,255,255,0.035)", "panel-strong": "rgba(255,255,255,0.055)",
+        "fill-faint": "rgba(255,255,255,0.028)",
+        "border": "rgba(255,255,255,0.09)", "border-soft": "rgba(255,255,255,0.06)",
+        "text": "#eceefb", "body-text": "#d6d8ee",
+        "muted": "#8d90ad", "muted-soft": "#6b6e8a",
+        "heading-accent": "#bcd0ff", "link": "#8fa8ff",
+        "badge-live": "#3ddc97", "badge-demo": "#f0b45b",
+        "grid-line": "rgba(255,255,255,0.025)",
+    },
+    "light": {
+        "bg": "#f3f4fa", "bg-soft": "#ffffff",
+        "panel": "rgba(20,22,50,0.035)", "panel-strong": "rgba(20,22,50,0.06)",
+        "fill-faint": "rgba(20,22,50,0.032)",
+        "border": "rgba(20,22,50,0.12)", "border-soft": "rgba(20,22,50,0.08)",
+        "text": "#15172a", "body-text": "#32344a",
+        "muted": "#585b78", "muted-soft": "#71749a",
+        "heading-accent": "#3f4fc0", "link": "#3457d5",
+        "badge-live": "#0e9a61", "badge-demo": "#9c650d",
+        "grid-line": "rgba(20,22,50,0.035)",
+    },
+}
+_theme_vars = _THEMES[st.session_state["theme"]]
+_root_vars = "\n".join(f"        --{name}:{value};" for name, value in _theme_vars.items())
+
+# Built separately (as its own small f-string) so the much larger plain
+# CSS string below never needs every literal { and } escaped.
+_root_css = f"""
     <style>
-    :root{
-        --bg:#05060d;
-        --bg-soft:#0a0c18;
-        --panel:rgba(255,255,255,0.035);
-        --panel-strong:rgba(255,255,255,0.055);
-        --border:rgba(255,255,255,0.09);
-        --border-soft:rgba(255,255,255,0.06);
-        --text:#eceefb;
-        --muted:#8d90ad;
-        --muted-soft:#6b6e8a;
+    :root{{
+{_root_vars}
         --blue:#5b7cfa;
         --indigo:#7c6cf0;
         --violet:#a35bf0;
         --ok:#3ddc97;
         --warn:#f0b45b;
         --radius:16px;
-    }
+        /* Sidebar always stays dark, regardless of theme, so its own
+           fixed palette never swaps with the main content above. */
+        --sb-text:#eceefb; --sb-muted:#8d90ad; --sb-muted-soft:#6b6e8a;
+        --sb-border:rgba(255,255,255,0.09); --sb-border-soft:rgba(255,255,255,0.06);
+        --sb-panel-strong:rgba(255,255,255,0.055);
+    }}
+    [data-testid="stSidebar"]{{ color:var(--sb-text); }}
+    """
 
+st.markdown(
+    _root_css
+    + """
     @media (prefers-reduced-motion: reduce){
         *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important;
            transition-duration:0.001ms !important; }
@@ -104,8 +138,8 @@ st.markdown(
     .ros-grid-layer{
         position:absolute; inset:0; z-index:0; pointer-events:none;
         background-image:
-            linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+            linear-gradient(var(--grid-line) 1px, transparent 1px),
+            linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
         background-size:42px 42px;
         mask-image:radial-gradient(ellipse 80% 60% at 50% 20%, #000 40%, transparent 85%);
         opacity:0.5;
@@ -119,7 +153,7 @@ st.markdown(
     /* ---- Sidebar ---- */
     [data-testid="stSidebar"]{
         background:linear-gradient(180deg, #090a15 0%, #06070f 100%);
-        border-right:1px solid var(--border-soft);
+        border-right:1px solid var(--sb-border-soft);
     }
     [data-testid="stSidebar"] > div{ padding-top:1.4rem; }
 
@@ -130,48 +164,54 @@ st.markdown(
         display:flex; align-items:center; justify-content:center;
         font-size:1.05rem; color:#fff; box-shadow:0 0 18px rgba(124,108,240,0.55);
     }
-    .ros-logo-text{ font-size:1.08rem; font-weight:700; letter-spacing:-0.01em; color:var(--text); }
-    .ros-logo-sub{ font-size:0.72rem; color:var(--muted); letter-spacing:0.02em; margin-top:-2px; }
+    .ros-logo-text{ font-size:1.08rem; font-weight:700; letter-spacing:-0.01em; color:var(--sb-text); }
+    .ros-logo-sub{ font-size:0.72rem; color:var(--sb-muted); letter-spacing:0.02em; margin-top:-2px; }
 
     .ros-nav-label{ font-size:0.68rem; letter-spacing:0.1em; text-transform:uppercase;
-        color:var(--muted-soft); margin:1.5rem 0 0.5rem 0.2rem; }
+        color:var(--sb-muted-soft); margin:1.5rem 0 0.5rem 0.2rem; }
+
+    .st-key-theme-toggle button{
+        width:100%; border-radius:10px; font-weight:500;
+        background:var(--sb-panel-strong) !important; border:1px solid var(--sb-border) !important;
+        color:var(--sb-text) !important;
+    }
 
     [data-testid="stSidebar"] .stButton button{
         width:100%; text-align:left; justify-content:flex-start;
-        background:transparent; border:1px solid transparent; color:var(--text);
+        background:transparent; border:1px solid transparent; color:var(--sb-text);
         font-weight:500; border-radius:10px; padding:0.5rem 0.7rem;
-        box-shadow:none;
+        box-shadow:none; transition:background 0.2s ease, border-color 0.2s ease;
     }
     [data-testid="stSidebar"] .stButton button:hover{
-        background:var(--panel-strong); border-color:var(--border);
+        background:var(--sb-panel-strong); border-color:var(--sb-border);
         color:#fff;
-    }
-    .st-key-nav-new-research button{
-        background:linear-gradient(90deg, rgba(91,124,250,0.18), rgba(163,91,240,0.18)) !important;
-        border:1px solid rgba(124,108,240,0.4) !important;
-        color:#fff !important;
-        font-weight:600 !important;
     }
 
     .ros-nav-item{
         display:flex; align-items:center; justify-content:space-between;
         gap:0.5rem; padding:0.5rem 0.7rem; border-radius:10px;
-        color:var(--muted-soft); font-size:0.88rem; font-weight:500;
+        color:var(--sb-muted-soft); font-size:0.88rem; font-weight:500;
         margin-bottom:0.15rem;
     }
     .ros-nav-item .ros-nav-icon{ opacity:0.7; margin-right:0.55rem; }
     .ros-nav-soon{
         font-size:0.6rem; letter-spacing:0.05em; text-transform:uppercase;
-        color:var(--muted-soft); border:1px solid var(--border);
+        color:var(--sb-muted-soft); border:1px solid var(--sb-border);
         border-radius:999px; padding:0.1rem 0.45rem;
     }
 
     .ros-sidebar-panel{
-        border-top:1px solid var(--border-soft); margin-top:1.6rem; padding-top:1.1rem;
+        border-top:1px solid var(--sb-border-soft); margin-top:1.6rem; padding-top:1.1rem;
     }
     .ros-stat-row{ display:flex; align-items:center; justify-content:space-between;
-        font-size:0.78rem; color:var(--muted); margin-bottom:0.55rem; }
-    .ros-stat-label{ text-transform:uppercase; letter-spacing:0.06em; font-size:0.66rem; color:var(--muted-soft); }
+        font-size:0.78rem; color:var(--sb-muted); margin-bottom:0.55rem; }
+    .ros-stat-label{ text-transform:uppercase; letter-spacing:0.06em; font-size:0.66rem; color:var(--sb-muted-soft); }
+
+    /* Theme-aware equivalent of .ros-stat-row, for main-content cards
+       (e.g. Settings) rather than the always-dark sidebar. */
+    .ros-info-row{ display:flex; align-items:center; justify-content:space-between;
+        font-size:0.85rem; color:var(--body-text); padding:0.4rem 0; border-bottom:1px solid var(--border-soft); }
+    .ros-info-row:last-child{ border-bottom:none; }
     .ros-dot{ width:7px; height:7px; border-radius:50%; background:var(--ok); display:inline-block;
         margin-right:0.4rem; box-shadow:0 0 8px rgba(61,220,151,0.8); animation:ros-pulse 2.4s ease-in-out infinite; }
     .ros-dot.off{ background:#5c5f78; box-shadow:none; animation:none; }
@@ -224,7 +264,7 @@ st.markdown(
 
     /* ---- Inputs ---- */
     div[data-testid="stTextInput"] input{
-        border:1px solid var(--border); border-radius:12px; background:rgba(255,255,255,0.03);
+        border:1px solid var(--border); border-radius:12px; background:var(--fill-faint);
         color:var(--text); font-size:1.05rem; padding:0.75rem 1rem;
     }
     div[data-testid="stTextInput"] input:focus{
@@ -234,7 +274,7 @@ st.markdown(
 
     /* Research question textarea -- Enter submits, Shift+Enter adds a line */
     .st-key-topic-input textarea{
-        border:1px solid var(--border); border-radius:12px; background:rgba(255,255,255,0.03);
+        border:1px solid var(--border); border-radius:12px; background:var(--fill-faint);
         color:var(--text); font-size:1.05rem; padding:0.75rem 1rem; resize:none;
     }
     .st-key-topic-input textarea:focus{
@@ -242,11 +282,12 @@ st.markdown(
     }
     .st-key-topic-input textarea::placeholder{ color:var(--muted-soft); }
     .st-key-topic-input [data-testid="stWidgetInstructions"]{ display:none; }
+    .ros-input-hint{ font-size:0.72rem; color:var(--muted-soft); margin-top:0.4rem; }
 
     /* Depth pills (st.pills) */
     div[data-testid="stPills"] button{
         border-radius:999px !important; border:1px solid var(--border) !important;
-        background:rgba(255,255,255,0.03) !important; color:var(--muted) !important;
+        background:var(--fill-faint) !important; color:var(--muted) !important;
     }
     div[data-testid="stPills"] button[aria-checked="true"]{
         background:linear-gradient(90deg, rgba(91,124,250,0.35), rgba(163,91,240,0.35)) !important;
@@ -272,9 +313,21 @@ st.markdown(
     }
 
     /* ---- Empty state ---- */
-    .ros-empty{ text-align:center; padding:2rem 1rem; color:var(--muted); }
+    .ros-empty{ text-align:center; padding:2.4rem 1rem; color:var(--muted); }
+    .ros-empty-icon{ font-size:1.6rem; margin-bottom:0.7rem; opacity:0.55; }
     .ros-empty h3{ color:var(--text); font-weight:600; margin-bottom:0.4rem; font-size:1.05rem; }
-    .ros-empty p{ font-size:0.9rem; margin:0; }
+    .ros-empty p{ font-size:0.9rem; margin:0 auto; max-width:360px; line-height:1.5; }
+
+    /* ---- Subtle workflow progress bar ---- */
+    .ros-progress-track{ width:100%; height:4px; border-radius:999px;
+        background:var(--fill-faint); overflow:hidden; margin-top:1rem; }
+    .ros-progress-fill{ height:100%; border-radius:999px;
+        background:linear-gradient(90deg, var(--blue), var(--violet));
+        background-size:200% 100%; transition:width 0.6s ease;
+        animation:ros-progress-shimmer 1.6s ease-in-out infinite; }
+    @keyframes ros-progress-shimmer{
+        0%{ background-position:0% 0; } 100%{ background-position:200% 0; }
+    }
 
     /* ---- Workflow ---- */
     .ros-workflow{ display:flex; align-items:flex-start; gap:0; flex-wrap:wrap; }
@@ -286,7 +339,7 @@ st.markdown(
     .ros-wf-circle{
         width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
         font-size:0.85rem; font-weight:700; margin-bottom:0.55rem;
-        border:1.5px solid var(--border); color:var(--muted-soft); background:rgba(255,255,255,0.02);
+        border:1.5px solid var(--border); color:var(--muted-soft); background:var(--fill-faint);
     }
     .ros-wf-stage.active .ros-wf-circle{
         border-color:transparent; color:#fff;
@@ -309,7 +362,7 @@ st.markdown(
     /* ---- Blueprint feature cards ---- */
     .ros-feature{
         border:1px solid var(--border-soft); border-radius:14px; padding:1rem 1.05rem;
-        background:rgba(255,255,255,0.02); height:100%; transition:border-color 0.3s ease, transform 0.3s ease;
+        background:var(--fill-faint); height:100%; transition:border-color 0.3s ease, transform 0.3s ease;
     }
     .ros-feature:hover{ border-color:rgba(124,108,240,0.4); transform:translateY(-2px); }
     .ros-feature-icon{ font-size:1.15rem; margin-bottom:0.5rem; }
@@ -321,9 +374,9 @@ st.markdown(
     .ros-report-meta blockquote{ border-left:2px solid var(--blue); background:rgba(91,124,250,0.08);
         padding:0.6rem 0.9rem; margin:0.3rem 0 0.6rem 0; border-radius:0 8px 8px 0; }
     .ros-section-heading{ font-size:0.72rem; letter-spacing:0.09em; text-transform:uppercase;
-        color:#bcd0ff; font-weight:700; margin-bottom:0.7rem; }
+        color:var(--heading-accent); font-weight:700; margin-bottom:0.7rem; }
     [data-testid="stVerticalBlockBorderWrapper"] p,
-    [data-testid="stVerticalBlockBorderWrapper"] li{ color:#d6d8ee; line-height:1.7; font-size:0.92rem; }
+    [data-testid="stVerticalBlockBorderWrapper"] li{ color:var(--body-text); line-height:1.7; font-size:0.92rem; }
 
     /* ---- AI verification / warning notice ---- */
     .ros-ai-notice{
@@ -339,18 +392,20 @@ st.markdown(
     /* ---- Source cards ---- */
     .ros-source-card{
         border:1px solid var(--border-soft); border-radius:12px; padding:0.85rem 1rem;
-        background:rgba(255,255,255,0.02); margin-bottom:0.65rem;
+        background:var(--fill-faint); margin-bottom:0.65rem;
+        transition:border-color 0.25s ease, transform 0.25s ease;
     }
+    .ros-source-card:hover{ border-color:rgba(124,108,240,0.35); transform:translateY(-1px); }
     .ros-source-top{ display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.3rem; }
     .ros-source-title{ font-weight:650; font-size:0.9rem; color:var(--text); }
     .ros-badge{ font-size:0.6rem; letter-spacing:0.04em; text-transform:uppercase; font-weight:700;
         border-radius:999px; padding:0.12rem 0.5rem; flex-shrink:0; white-space:nowrap; }
-    .ros-badge.live{ color:#3ddc97; background:rgba(61,220,151,0.12); border:1px solid rgba(61,220,151,0.35); }
-    .ros-badge.demo{ color:#f0b45b; background:rgba(240,180,91,0.12); border:1px solid rgba(240,180,91,0.35); }
+    .ros-badge.live{ color:var(--badge-live); background:rgba(61,220,151,0.12); border:1px solid rgba(61,220,151,0.35); }
+    .ros-badge.demo{ color:var(--badge-demo); background:rgba(240,180,91,0.12); border:1px solid rgba(240,180,91,0.35); }
     .ros-source-domain{ font-size:0.68rem; color:var(--muted-soft); text-transform:uppercase;
         letter-spacing:0.04em; margin-bottom:0.35rem; }
     .ros-source-summary{ font-size:0.82rem; color:var(--muted); line-height:1.55; margin-bottom:0.4rem; }
-    .ros-source-card a{ font-size:0.78rem; color:#8fa8ff; text-decoration:none; word-break:break-all; }
+    .ros-source-card a{ font-size:0.78rem; color:var(--link); text-decoration:none; word-break:break-all; }
     .ros-source-card a:hover{ text-decoration:underline; }
 
     .ros-section-label{ font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase;
@@ -419,6 +474,14 @@ def render_workflow(placeholder, active_index):
             connector_state = "done" if (active_index >= total or index < active_index) else ""
             parts.append(f'<div class="ros-wf-connector {connector_state}"></div>')
     parts.append("</div>")
+
+    if 0 <= active_index < total:
+        progress_pct = round(((active_index + 0.5) / total) * 100)
+        parts.append(
+            f'<div class="ros-progress-track"><div class="ros-progress-fill" '
+            f'style="width:{progress_pct}%;"></div></div>'
+        )
+
     placeholder.markdown("".join(parts), unsafe_allow_html=True)
 
 
@@ -548,7 +611,7 @@ def render_history_view():
     entries = storage.list_history()
     if not entries:
         st.markdown(
-            '<div class="ros-empty"><h3>No research history yet.</h3>'
+            '<div class="ros-empty"><div class="ros-empty-icon">⏱</div><h3>No research history yet.</h3>'
             "<p>Every completed research run is automatically saved here, "
             "so you can revisit it later.</p></div>",
             unsafe_allow_html=True,
@@ -569,7 +632,7 @@ def render_saved_view():
     entries = storage.list_saved_reports()
     if not entries:
         st.markdown(
-            '<div class="ros-empty"><h3>No saved reports yet.</h3>'
+            '<div class="ros-empty"><div class="ros-empty-icon">▤</div><h3>No saved reports yet.</h3>'
             "<p>Use \"Save Report\" on a completed research report to keep it here.</p></div>",
             unsafe_allow_html=True,
         )
@@ -616,7 +679,7 @@ def render_sources_library_view():
 
     if not all_sources:
         st.markdown(
-            '<div class="ros-empty"><h3>No sources yet.</h3>'
+            '<div class="ros-empty"><div class="ros-empty-icon">◈</div><h3>No sources yet.</h3>'
             "<p>Sources collected during research runs (Research History and "
             "Saved Reports) will appear here automatically.</p></div>",
             unsafe_allow_html=True,
@@ -674,7 +737,7 @@ def render_settings_view():
         )
         for depth_name, source_count in research_agent.SOURCE_COUNT_BY_DEPTH.items():
             st.markdown(
-                f'<div class="ros-stat-row"><span>{html.escape(depth_name)}</span>'
+                f'<div class="ros-info-row"><span>{html.escape(depth_name)}</span>'
                 f'<span>{source_count} source(s)</span></div>',
                 unsafe_allow_html=True,
             )
@@ -682,9 +745,9 @@ def render_settings_view():
     with st.container(border=True):
         st.markdown('<div class="ros-card-title">Connection Status</div>', unsafe_allow_html=True)
         st.markdown(
-            f'<div class="ros-stat-row"><span>Live Web Search</span>'
+            f'<div class="ros-info-row"><span>Live Web Search</span>'
             f'<span><span class="ros-dot"></span>Always available (no API key required)</span></div>'
-            f'<div class="ros-stat-row"><span>OpenRouter AI Engine</span>'
+            f'<div class="ros-info-row"><span>OpenRouter AI Engine</span>'
             f'<span><span class="ros-dot{"" if _engine_online else " off"}"></span>'
             f'{"Connected" if _engine_online else "Not connected"}</span></div>',
             unsafe_allow_html=True,
@@ -730,6 +793,12 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    _theme_icon = "🌙" if st.session_state["theme"] == "dark" else "☀️"
+    _theme_label = "Dark Mode" if st.session_state["theme"] == "dark" else "Light Mode"
+    if st.button(f"{_theme_icon}  {_theme_label}", key="theme-toggle", width="stretch"):
+        st.session_state["theme"] = "light" if st.session_state["theme"] == "dark" else "dark"
+        st.rerun()
+
     st.markdown('<div class="ros-nav-label">Navigate</div>', unsafe_allow_html=True)
 
     if st.button("✦  New Research", key="nav-new-research", width="stretch"):
@@ -757,6 +826,21 @@ with st.sidebar:
         st.session_state["view"] = "settings"
         st.rerun()
 
+    # Highlight whichever nav button matches the current view, so the
+    # sidebar always shows a clear active state (only one at a time).
+    _nav_key_by_view = {
+        "research": "nav-new-research", "history": "nav-history", "saved": "nav-saved",
+        "sources": "nav-sources", "settings": "nav-settings",
+    }
+    _active_nav_key = _nav_key_by_view.get(st.session_state["view"], "nav-new-research")
+    st.markdown(
+        f"<style>.st-key-{_active_nav_key} button{{"
+        "background:linear-gradient(90deg, rgba(91,124,250,0.22), rgba(163,91,240,0.22)) !important;"
+        "border:1px solid rgba(124,108,240,0.45) !important; color:#fff !important; "
+        "font-weight:600 !important;}}</style>",
+        unsafe_allow_html=True,
+    )
+
     usage_count = min(st.session_state["usage_count"], 50)
     usage_pct = round((usage_count / 50) * 100)
     plan_label = "Free Plan" if _is_free_model else "Custom Plan"
@@ -767,7 +851,7 @@ with st.sidebar:
           <div class="ros-stat-row">
             <span class="ros-stat-label">AI Engine Status</span>
           </div>
-          <div style="margin-bottom:1.1rem; font-size:0.85rem; color:var(--text);">
+          <div style="margin-bottom:1.1rem; font-size:0.85rem; color:var(--sb-text);">
             <span class="ros-dot{'' if _engine_online else ' off'}"></span>
             {'Online' if _engine_online else 'Offline'}
           </div>
@@ -775,7 +859,7 @@ with st.sidebar:
           <div class="ros-stat-row">
             <span class="ros-stat-label">Session Usage</span>
           </div>
-          <div style="font-size:0.85rem; color:var(--text); margin-bottom:0.2rem;">
+          <div style="font-size:0.85rem; color:var(--sb-text); margin-bottom:0.2rem;">
             {usage_count} / 50 requests
           </div>
           <div class="ros-usage-track">
@@ -834,6 +918,10 @@ else:
             label_visibility="collapsed",
             key="topic-input",
             height=68,
+        )
+        st.markdown(
+            '<div class="ros-input-hint">⏎ Enter to start &middot; Shift + ⏎ for a new line</div>',
+            unsafe_allow_html=True,
         )
 
         st.markdown('<div class="ros-card-title" style="margin-top:1rem;">Research Depth</div>', unsafe_allow_html=True)
@@ -1036,7 +1124,7 @@ else:
         )
     elif not start_button:
         st.markdown(
-            '<div class="ros-empty"><h3>Your research starts here.</h3>'
+            '<div class="ros-empty"><div class="ros-empty-icon">✦</div><h3>Your research starts here.</h3>'
             "<p>Ask a question above and let the agent search the web, "
             "analyze evidence, and build a structured report.</p></div>",
             unsafe_allow_html=True,
