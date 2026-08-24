@@ -12,6 +12,7 @@ import datetime
 import html
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import openrouter_client
 import pdf_export
@@ -231,6 +232,17 @@ st.markdown(
     }
     div[data-testid="stTextInput"] input::placeholder{ color:var(--muted-soft); }
 
+    /* Research question textarea -- Enter submits, Shift+Enter adds a line */
+    .st-key-topic-input textarea{
+        border:1px solid var(--border); border-radius:12px; background:rgba(255,255,255,0.03);
+        color:var(--text); font-size:1.05rem; padding:0.75rem 1rem; resize:none;
+    }
+    .st-key-topic-input textarea:focus{
+        border-color:rgba(124,108,240,0.6); box-shadow:0 0 0 3px rgba(124,108,240,0.15);
+    }
+    .st-key-topic-input textarea::placeholder{ color:var(--muted-soft); }
+    .st-key-topic-input [data-testid="stWidgetInstructions"]{ display:none; }
+
     /* Depth pills (st.pills) */
     div[data-testid="stPills"] button{
         border-radius:999px !important; border:1px solid var(--border) !important;
@@ -312,6 +324,17 @@ st.markdown(
         color:#bcd0ff; font-weight:700; margin-bottom:0.7rem; }
     [data-testid="stVerticalBlockBorderWrapper"] p,
     [data-testid="stVerticalBlockBorderWrapper"] li{ color:#d6d8ee; line-height:1.7; font-size:0.92rem; }
+
+    /* ---- AI verification / warning notice ---- */
+    .ros-ai-notice{
+        display:flex; gap:0.65rem; align-items:flex-start;
+        border:1px solid rgba(240,180,91,0.3); border-left:3px solid var(--warn);
+        background:rgba(240,180,91,0.07); border-radius:10px;
+        padding:0.75rem 1rem; margin-top:0.9rem;
+    }
+    .ros-ai-notice .ros-ai-notice-icon{ font-size:1rem; line-height:1.4; flex-shrink:0; }
+    .ros-ai-notice-title{ font-size:0.82rem; font-weight:700; color:var(--warn); margin-bottom:0.2rem; }
+    .ros-ai-notice-body{ font-size:0.78rem; color:var(--muted); line-height:1.55; }
 
     /* ---- Source cards ---- */
     .ros-source-card{
@@ -446,9 +469,13 @@ def render_report_cards(report_text, sources, sources_are_real):
         st.markdown(render_source_cards_html(sources, sources_are_real), unsafe_allow_html=True)
 
     st.markdown(
-        f'<div style="font-size:0.78rem; color:var(--warn); border:1px solid rgba(240,180,91,0.3); '
-        f'background:rgba(240,180,91,0.07); border-radius:10px; padding:0.6rem 0.9rem; margin-top:0.8rem;">'
-        f"⚠ {html.escape(research_agent.VERIFICATION_NOTICE)}</div>",
+        '<div class="ros-ai-notice">'
+        '<div class="ros-ai-notice-icon">⚠</div>'
+        "<div>"
+        f'<div class="ros-ai-notice-title">{html.escape(research_agent.VERIFICATION_NOTICE_TITLE)}</div>'
+        f'<div class="ros-ai-notice-body">{html.escape(research_agent.VERIFICATION_NOTICE)}</div>'
+        "</div>"
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -674,6 +701,7 @@ def render_settings_view():
             "<b>ResearchOS</b> — Mini AI Research Agent<br>"
             "Combines real-time web search with AI-powered analysis and synthesis "
             "to generate structured research reports.<br><br>"
+            f"<b>{html.escape(research_agent.VERIFICATION_NOTICE_TITLE)}:</b> "
             f"{html.escape(research_agent.VERIFICATION_NOTICE)}"
             "</div>",
             unsafe_allow_html=True,
@@ -800,10 +828,12 @@ else:
 
     with st.container(border=True):
         st.markdown('<div class="ros-card-title">Research Question</div>', unsafe_allow_html=True)
-        topic_input = st.text_input(
+        topic_input = st.text_area(
             "Research Topic",
-            placeholder="What would you like to research?",
+            placeholder="What would you like to research? (Enter to start, Shift+Enter for a new line)",
             label_visibility="collapsed",
+            key="topic-input",
+            height=68,
         )
 
         st.markdown('<div class="ros-card-title" style="margin-top:1rem;">Research Depth</div>', unsafe_allow_html=True)
@@ -818,6 +848,43 @@ else:
 
         st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
         start_button = st.button("✦  Start Research", key="start-research", type="primary", width="stretch")
+
+        # Enter submits the research question (like clicking Start Research);
+        # Shift+Enter still inserts a newline normally. Implemented via a tiny
+        # injected script because Streamlit's own text_area has no built-in
+        # "Enter submits" behavior -- it only supports Ctrl+Enter to apply.
+        components.html(
+            """
+            <script>
+            (function() {
+                function attach() {
+                    const doc = window.parent.document;
+                    const textarea = doc.querySelector('.st-key-topic-input textarea');
+                    const button = doc.querySelector('.st-key-start-research button');
+                    if (!textarea || !button) { return false; }
+                    if (textarea.dataset.enterSubmitAttached) { return true; }
+                    textarea.dataset.enterSubmitAttached = "true";
+                    textarea.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            textarea.blur();
+                            setTimeout(function() { button.click(); }, 80);
+                        }
+                        // Shift+Enter: no special handling -- the browser's
+                        // default textarea behavior inserts a newline.
+                    });
+                    return true;
+                }
+                if (!attach()) {
+                    const interval = setInterval(function() {
+                        if (attach()) { clearInterval(interval); }
+                    }, 250);
+                }
+            })();
+            </script>
+            """,
+            height=0,
+        )
 
     # -------------------------------------------------------------
     # Agent workflow (always visible; reflects real pipeline progress only)

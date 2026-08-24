@@ -20,11 +20,16 @@ from mock_data import find_topic_data
 
 _BULLET_PREFIX_RE = re.compile(r"^(?:[-*•]|\d+[.)])\s*")
 
-# Shown on every report (screen + PDF) so nothing implies the AI's output
-# is verified fact. Single source of truth so screen and PDF never drift.
+# Shown at the end of every report (screen + PDF) so nothing implies the
+# AI's output is verified fact. Single source of truth so screen and PDF
+# never drift.
+VERIFICATION_NOTICE_TITLE = "AI Research Notice"
 VERIFICATION_NOTICE = (
-    "AI-generated research based on retrieved web sources. Verify important "
-    "claims using the cited sources."
+    "This report is generated with the assistance of AI and based on "
+    "retrieved sources. AI-generated information may contain errors or "
+    "incomplete conclusions. Always verify important facts using the "
+    "cited sources and do not make important decisions based solely on "
+    "AI-generated information."
 )
 
 

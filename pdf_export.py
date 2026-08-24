@@ -144,10 +144,22 @@ def generate_pdf(topic, date_str, depth, report_text, sources, sources_are_real)
         _multicell(pdf, 5, research_agent.markdown_to_plain_text(source["summary"]))
         pdf.ln(2)
 
-    # ---- Verification notice ----
-    pdf.ln(2)
-    pdf.set_font("Helvetica", "I", 9)
+    # ---- AI verification / warning notice (professional boxed callout) ----
+    pdf.ln(3)
+    notice_text = (
+        f"**{_pdf_text(research_agent.VERIFICATION_NOTICE_TITLE)}**\n"
+        f"{_pdf_text(research_agent.VERIFICATION_NOTICE)}"
+    )
+    pdf.set_font("Helvetica", "", 9.5)
     pdf.set_text_color(*NOTICE_COLOR)
-    _multicell(pdf, 5, f"Notice: {research_agent.VERIFICATION_NOTICE}")
+    pdf.set_draw_color(225, 180, 90)
+    pdf.set_fill_color(255, 248, 232)
+    pdf.set_line_width(0.3)
+    pdf.multi_cell(
+        0, 5.5, notice_text,
+        border=1, fill=True, markdown=True,
+        new_x="LMARGIN", new_y="NEXT",
+        padding=3,
+    )
 
     return bytes(pdf.output())
