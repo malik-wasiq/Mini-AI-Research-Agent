@@ -464,6 +464,38 @@ def generate_report(topic, depth, plan, sources, analysis, synthesis, sources_ar
     return report_text
 
 
+def parse_report_markdown(report_text):
+    """
+    Split a generated report markdown string into an intro block
+    (title/status line/date) and a list of (heading, body) sections, so
+    the exact same content can be reused across the UI cards and other
+    export formats (e.g. PDF) without re-deriving it.
+    """
+    intro_lines = []
+    sections = []
+    current_heading = None
+    current_lines = []
+
+    for line in report_text.split("\n"):
+        if line.startswith("## "):
+            if current_heading is not None:
+                sections.append((current_heading, "\n".join(current_lines).strip()))
+            current_heading = line[3:].strip()
+            current_lines = []
+        elif line.startswith("# "):
+            continue
+        else:
+            if current_heading is None:
+                intro_lines.append(line)
+            else:
+                current_lines.append(line)
+
+    if current_heading is not None:
+        sections.append((current_heading, "\n".join(current_lines).strip()))
+
+    return "\n".join(intro_lines).strip(), sections
+
+
 def markdown_to_plain_text(markdown_text):
     """
     Turn our Markdown report into a simpler plain-text version for the

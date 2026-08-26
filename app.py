@@ -13,6 +13,7 @@ import html
 import streamlit as st
 
 import openrouter_client
+import pdf_export
 import research_agent
 
 
@@ -420,40 +421,9 @@ def render_source_cards_html(sources, sources_are_real):
     return "".join(parts)
 
 
-def parse_report_markdown(report_text):
-    """
-    Split the already-generated report markdown into an intro block
-    (title/status line/date) and a list of (heading, body) sections,
-    so the exact same content can be displayed inside separate cards.
-    """
-    intro_lines = []
-    sections = []
-    current_heading = None
-    current_lines = []
-
-    for line in report_text.split("\n"):
-        if line.startswith("## "):
-            if current_heading is not None:
-                sections.append((current_heading, "\n".join(current_lines).strip()))
-            current_heading = line[3:].strip()
-            current_lines = []
-        elif line.startswith("# "):
-            continue
-        else:
-            if current_heading is None:
-                intro_lines.append(line)
-            else:
-                current_lines.append(line)
-
-    if current_heading is not None:
-        sections.append((current_heading, "\n".join(current_lines).strip()))
-
-    return "\n".join(intro_lines).strip(), sections
-
-
 def render_report_cards(report_text, sources, sources_are_real):
     """Render the persisted final report as a set of clean, titled cards."""
-    intro, sections = parse_report_markdown(report_text)
+    intro, sections = research_agent.parse_report_markdown(report_text)
 
     if intro:
         st.markdown(f'<div class="ros-report-meta">{intro}</div>'.replace("\n", "<br>"), unsafe_allow_html=True)
@@ -759,10 +729,12 @@ if "report_text" in st.session_state:
 
     report_text = st.session_state["report_text"]
     report_topic = st.session_state["report_topic"]
+    report_sources = st.session_state.get("report_sources", [])
+    report_sources_are_real = st.session_state.get("report_sources_are_real", False)
     plain_text_report = research_agent.markdown_to_plain_text(report_text)
 
     with st.container(border=True):
-        download_col1, download_col2 = st.columns(2)
+        download_col1, download_col2, download_col3 = st.columns(3)
         with download_col1:
             st.download_button(
                 label="⬇  Download Markdown",
@@ -779,6 +751,20 @@ if "report_text" in st.session_state:
                 mime="text/plain",
                 width="stretch",
             )
+        with download_col3:
+            try:
+                pdf_bytes = pdf_export.generate_pdf(
+                    report_text, report_topic, report_sources, report_sources_are_real
+                )
+                st.download_button(
+                    label="⬇  Download PDF",
+                    data=pdf_bytes,
+                    file_name="research_report.pdf",
+                    mime="application/pdf",
+                    width="stretch",
+                )
+            except Exception as error:
+                st.error(f"Could not generate PDF: {error}")
 
         if st.button("Save report to reports/ folder", width="stretch"):
             try:
