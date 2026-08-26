@@ -4,8 +4,10 @@
 # network. It has one job: send chat messages, return the AI's reply text.
 #
 # Security notes:
-#   - The API key is read from the OPENROUTER_API_KEY environment variable
-#     (loaded from a local .env file). It is never hard-coded here.
+#   - The API key is read from Streamlit Secrets when deployed on Streamlit
+#     Community Cloud, or from the OPENROUTER_API_KEY environment variable
+#     (loaded from a local .env file) when run locally. It is never
+#     hard-coded here.
 #   - The key is only ever placed in the outgoing Authorization header.
 #   - Errors raised by this module are safe to display in the UI: they
 #     never include the API key or the request headers.
@@ -20,6 +22,11 @@ from dotenv import load_dotenv
 # prints or returns their values.
 load_dotenv()
 
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 REQUEST_TIMEOUT_SECONDS = 60
@@ -33,14 +40,30 @@ class OpenRouterError(Exception):
     """
 
 
+def _get_config_value(key):
+    """
+    Read a config value, checking Streamlit Secrets first (how secrets are
+    provided on Streamlit Community Cloud) and falling back to the process
+    environment / local .env file. Never logs or returns this elsewhere.
+    """
+    if st is not None:
+        try:
+            value = st.secrets.get(key)
+        except Exception:
+            value = None
+        if value:
+            return str(value).strip()
+    return os.environ.get(key, "").strip()
+
+
 def get_api_key():
-    """Read the API key from the environment. Never log or return this elsewhere."""
-    return os.environ.get("OPENROUTER_API_KEY", "").strip()
+    """Read the API key from Streamlit Secrets or the environment."""
+    return _get_config_value("OPENROUTER_API_KEY")
 
 
 def get_model_name():
     """Read the configured model name, falling back to the free default model."""
-    return os.environ.get("OPENROUTER_MODEL", "").strip() or DEFAULT_MODEL
+    return _get_config_value("OPENROUTER_MODEL") or DEFAULT_MODEL
 
 
 def is_configured():
