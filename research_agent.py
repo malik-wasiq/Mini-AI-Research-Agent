@@ -727,3 +727,72 @@ def delete_history_entry(entry_id):
         os.remove(path)
         return True
     return False
+
+
+# ---------------------------------------------------------------------
+# Sources Library: built entirely from the sources already stored inside
+# Research History (history/*.json) and Saved Reports (reports/*.json).
+# No separate storage -- this just reads and aggregates existing data.
+# ---------------------------------------------------------------------
+def _iter_stored_entries():
+    """Yield every saved history entry and saved report's raw JSON data."""
+    for folder in (HISTORY_FOLDER, REPORTS_FOLDER):
+        if not os.path.exists(folder):
+            continue
+        for file_name in os.listdir(folder):
+            if not file_name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(folder, file_name), "r", encoding="utf-8") as data_file:
+                    yield json.load(data_file)
+            except (OSError, ValueError):
+                continue
+
+
+def list_library_sources(query=None):
+    """
+    Collect every source referenced by any saved history entry or saved
+    report, de-duplicated by URL (keeping the most recently seen copy),
+    most recent first. If query is given, only sources whose name,
+    domain, summary, URL, or originating research question contain it
+    (case-insensitive) are returned.
+    """
+    deduped = {}
+
+    for entry in _iter_stored_entries():
+        research_topic = entry.get("topic", "")
+        created_at = entry.get("created_at", "")
+        sources_are_real = entry.get("sources_are_real", False)
+
+        for source in entry.get("sources", []):
+            url = (source.get("url") or "").strip()
+            key = url.lower() if url else (source.get("name", ""), research_topic)
+
+            existing = deduped.get(key)
+            if existing is not None and existing["created_at"] >= created_at:
+                continue
+
+            deduped[key] = {
+                "name": source.get("name", ""),
+                "domain": source.get("topic", ""),
+                "summary": source.get("summary", ""),
+                "url": url,
+                "research_topic": research_topic,
+                "created_at": created_at,
+                "sources_are_real": sources_are_real,
+            }
+
+    sources = sorted(deduped.values(), key=lambda item: item["created_at"], reverse=True)
+
+    if query and query.strip():
+        query_lower = query.strip().lower()
+        sources = [
+            source for source in sources
+            if query_lower in source["name"].lower()
+            or query_lower in source["domain"].lower()
+            or query_lower in source["summary"].lower()
+            or query_lower in source["url"].lower()
+            or query_lower in source["research_topic"].lower()
+        ]
+
+    return sources

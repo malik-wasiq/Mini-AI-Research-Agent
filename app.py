@@ -579,6 +579,78 @@ def render_saved_reports_view():
                     st.rerun()
 
 
+def render_sources_library_view():
+    """
+    Render the Sources Library page: every source collected across
+    Research History and Saved Reports, de-duplicated, with a simple
+    text search and an Open Source button for each -- built entirely
+    from data those two features already store, or a clean empty state.
+    """
+    st.markdown('<div class="ros-section-label">Sources Library</div>', unsafe_allow_html=True)
+
+    search_query = st.text_input(
+        "Search sources",
+        placeholder="Search by title, domain, research question, or keyword...",
+        key="library-search",
+        label_visibility="collapsed",
+    )
+
+    sources = research_agent.list_library_sources(search_query)
+
+    if not sources:
+        if search_query.strip():
+            st.markdown(
+                '<div class="ros-empty"><h3>No sources match your search.</h3>'
+                "<p>Try a different keyword, or clear the search box.</p></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="ros-empty"><h3>No sources yet.</h3>'
+                "<p>Sources collected during research runs will appear here "
+                "automatically once you have Research History or Saved "
+                "Reports.</p></div>",
+                unsafe_allow_html=True,
+            )
+        return
+
+    st.caption(f"{len(sources)} source(s)")
+
+    for index, source in enumerate(sources):
+        with st.container(border=True):
+            badge_class = "live" if source["sources_are_real"] else "demo"
+            badge_label = "LIVE SOURCE" if source["sources_are_real"] else "DEMO SOURCE"
+            st.markdown(
+                '<div class="ros-source-top">'
+                f'<div class="ros-source-title">{html.escape(source["name"]) or "Untitled source"}</div>'
+                f'<span class="ros-badge {badge_class}">{badge_label}</span>'
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            if source["domain"]:
+                st.markdown(
+                    f'<div class="ros-source-domain">{html.escape(source["domain"])}</div>',
+                    unsafe_allow_html=True,
+                )
+            meta_bits = []
+            if source["research_topic"]:
+                meta_bits.append(f'From: {html.escape(source["research_topic"])}')
+            meta_bits.append(html.escape(_format_history_timestamp(source["created_at"])))
+            st.markdown(
+                f'<div class="ros-source-domain">{" &nbsp;|&nbsp; ".join(meta_bits)}</div>',
+                unsafe_allow_html=True,
+            )
+            if source["summary"]:
+                st.markdown(
+                    f'<div class="ros-source-summary">{html.escape(source["summary"])}</div>',
+                    unsafe_allow_html=True,
+                )
+            if source["url"]:
+                st.link_button("Open Source", source["url"], key=f"library-open-{index}", width="stretch")
+            else:
+                st.caption("No URL available for this source.")
+
+
 # ---------------------------------------------------------------------
 # Sidebar: branding, navigation, and real (derived, not fabricated)
 # status information.
@@ -617,8 +689,11 @@ with st.sidebar:
         st.session_state["active_view"] = "saved_reports"
         st.rerun()
 
+    if st.button("◈  Sources Library", key="nav-sources-library", width="stretch"):
+        st.session_state["active_view"] = "sources_library"
+        st.rerun()
+
     for icon, nav_label in [
-        ("◈", "Sources Library"),
         ("⚙", "Settings"),
     ]:
         st.markdown(
@@ -678,6 +753,8 @@ if st.session_state["active_view"] == "history":
     render_history_view()
 elif st.session_state["active_view"] == "saved_reports":
     render_saved_reports_view()
+elif st.session_state["active_view"] == "sources_library":
+    render_sources_library_view()
 else:
     # ---------------------------------------------------------------------
     # Hero + research input (the visual focus of the page)
