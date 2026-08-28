@@ -11,8 +11,10 @@
 # names and structure, so app.py will not need to change much.
 
 import datetime
+import json
 import os
 import re
+import uuid
 
 import openrouter_client
 import web_search
@@ -539,3 +541,98 @@ def save_report_to_file(report_text, topic, file_extension):
         report_file.write(report_text)
 
     return file_path
+
+
+# ---------------------------------------------------------------------
+# Research History: automatically persists every completed research run
+# (as one JSON file per run inside history/) so it can be listed and
+# reopened later without re-running the research pipeline. This mirrors
+# the same simple file-based storage pattern used by save_report_to_file
+# above, just with structured data instead of raw report text.
+# ---------------------------------------------------------------------
+HISTORY_FOLDER = "history"
+
+
+def _history_file_path(entry_id):
+    return os.path.join(HISTORY_FOLDER, f"{entry_id}.json")
+
+
+def save_history_entry(topic, depth, sources, sources_are_real, report_text):
+    """
+    Persist a completed research run to history/. Returns the new
+    entry's id. The full report text and sources are stored so the
+    report can be reopened exactly as generated, with no re-research.
+    """
+    if not os.path.exists(HISTORY_FOLDER):
+        os.makedirs(HISTORY_FOLDER)
+
+    _, sections = parse_report_markdown(report_text)
+    summary = dict(sections).get("Executive Summary", "")
+
+    entry_id = uuid.uuid4().hex
+    entry = {
+        "id": entry_id,
+        "topic": topic,
+        "depth": depth,
+        "created_at": datetime.datetime.now().isoformat(),
+        "source_count": len(sources),
+        "sources_are_real": sources_are_real,
+        "summary": summary,
+        "sources": sources,
+        "report_text": report_text,
+    }
+
+    with open(_history_file_path(entry_id), "w", encoding="utf-8") as history_file:
+        json.dump(entry, history_file, ensure_ascii=False, indent=2)
+
+    return entry_id
+
+
+def list_history_entries():
+    """
+    Return lightweight metadata (no full report text) for every saved
+    history entry, most recent first.
+    """
+    if not os.path.exists(HISTORY_FOLDER):
+        return []
+
+    entries = []
+    for file_name in os.listdir(HISTORY_FOLDER):
+        if not file_name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(HISTORY_FOLDER, file_name), "r", encoding="utf-8") as history_file:
+                data = json.load(history_file)
+        except (OSError, ValueError):
+            continue
+
+        entries.append({
+            "id": data.get("id", file_name[:-5]),
+            "topic": data.get("topic", ""),
+            "depth": data.get("depth", ""),
+            "created_at": data.get("created_at", ""),
+            "source_count": data.get("source_count", 0),
+            "sources_are_real": data.get("sources_are_real", False),
+            "summary": data.get("summary", ""),
+        })
+
+    entries.sort(key=lambda entry: entry["created_at"], reverse=True)
+    return entries
+
+
+def load_history_entry(entry_id):
+    """Load a single history entry's full data (including report_text and sources)."""
+    path = _history_file_path(entry_id)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as history_file:
+        return json.load(history_file)
+
+
+def delete_history_entry(entry_id):
+    """Delete a history entry. Returns True if a file was actually removed."""
+    path = _history_file_path(entry_id)
+    if os.path.exists(path):
+        os.remove(path)
+        return True
+    return False
