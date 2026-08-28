@@ -519,28 +519,119 @@ def markdown_to_plain_text(markdown_text):
     return "\n".join(plain_lines)
 
 
-def save_report_to_file(report_text, topic, file_extension):
+REPORTS_FOLDER = "reports"
+
+
+def save_report_to_file(report_text, topic, file_extension, depth=None, sources=None, sources_are_real=False):
     """
-    Save the generated report inside the reports/ folder.
-    Returns the full file path where the report was saved.
+    Save the generated report inside the reports/ folder, plus a JSON
+    metadata sidecar (same base file name) recording the topic, depth,
+    sources and a summary excerpt -- this is what lets the Saved Reports
+    feature list and reopen this exact report later with no re-research.
+    Returns the full file path of the saved report file.
     """
     # Make sure the reports folder exists before saving into it.
-    reports_folder = "reports"
-    if not os.path.exists(reports_folder):
-        os.makedirs(reports_folder)
+    if not os.path.exists(REPORTS_FOLDER):
+        os.makedirs(REPORTS_FOLDER)
 
     # Build a simple, safe file name from the topic and current time.
     safe_topic = "".join(
         character if character.isalnum() else "_" for character in topic
     ).strip("_")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_name = f"{safe_topic}_{timestamp}.{file_extension}"
-    file_path = os.path.join(reports_folder, file_name)
+    base_name = f"{safe_topic}_{timestamp}"
+    file_name = f"{base_name}.{file_extension}"
+    file_path = os.path.join(REPORTS_FOLDER, file_name)
 
     with open(file_path, "w", encoding="utf-8") as report_file:
         report_file.write(report_text)
 
+    _, sections = parse_report_markdown(report_text)
+    summary = dict(sections).get("Executive Summary", "")
+    metadata = {
+        "id": base_name,
+        "topic": topic,
+        "depth": depth,
+        "created_at": datetime.datetime.now().isoformat(),
+        "source_count": len(sources) if sources else 0,
+        "sources_are_real": sources_are_real,
+        "summary": summary,
+        "sources": sources or [],
+        "report_text": report_text,
+        "report_file": file_name,
+    }
+    metadata_path = os.path.join(REPORTS_FOLDER, f"{base_name}.json")
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, ensure_ascii=False, indent=2)
+
     return file_path
+
+
+def list_saved_reports():
+    """
+    Return lightweight metadata (no full report text) for every report
+    saved via save_report_to_file, most recent first.
+    """
+    if not os.path.exists(REPORTS_FOLDER):
+        return []
+
+    entries = []
+    for file_name in os.listdir(REPORTS_FOLDER):
+        if not file_name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(REPORTS_FOLDER, file_name), "r", encoding="utf-8") as metadata_file:
+                data = json.load(metadata_file)
+        except (OSError, ValueError):
+            continue
+
+        entries.append({
+            "id": data.get("id", file_name[:-5]),
+            "topic": data.get("topic", ""),
+            "depth": data.get("depth"),
+            "created_at": data.get("created_at", ""),
+            "source_count": data.get("source_count", 0),
+            "sources_are_real": data.get("sources_are_real", False),
+            "summary": data.get("summary", ""),
+        })
+
+    entries.sort(key=lambda entry: entry["created_at"], reverse=True)
+    return entries
+
+
+def load_saved_report(report_id):
+    """Load a single saved report's full data (including report_text and sources)."""
+    path = os.path.join(REPORTS_FOLDER, f"{report_id}.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as metadata_file:
+        return json.load(metadata_file)
+
+
+def delete_saved_report(report_id):
+    """
+    Delete a saved report: its JSON metadata sidecar and the underlying
+    report file it points to. Returns True if the metadata file existed
+    and was removed.
+    """
+    metadata_path = os.path.join(REPORTS_FOLDER, f"{report_id}.json")
+    if not os.path.exists(metadata_path):
+        return False
+
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+            data = json.load(metadata_file)
+    except (OSError, ValueError):
+        data = None
+
+    os.remove(metadata_path)
+
+    if data and data.get("report_file"):
+        report_file_path = os.path.join(REPORTS_FOLDER, data["report_file"])
+        if os.path.exists(report_file_path):
+            os.remove(report_file_path)
+
+    return True
 
 
 # ---------------------------------------------------------------------

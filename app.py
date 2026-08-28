@@ -514,6 +514,71 @@ def render_history_view():
                     st.rerun()
 
 
+def render_saved_reports_view():
+    """
+    Render the Saved Reports page: reports explicitly saved via "Save
+    report to reports/ folder", listed with Open/View (which reuses the
+    existing report cards + Export section -- Markdown/Text/PDF downloads
+    -- with no re-research) and Delete, or a clean empty state.
+    """
+    st.markdown('<div class="ros-section-label">Saved Reports</div>', unsafe_allow_html=True)
+    entries = research_agent.list_saved_reports()
+
+    if not entries:
+        st.markdown(
+            '<div class="ros-empty"><h3>No saved reports yet.</h3>'
+            '<p>Use "Save report to reports/ folder" after a completed '
+            "research report to keep it here -- open it anytime to view "
+            "or re-download it, with no re-research.</p></div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    for entry in entries:
+        with st.container(border=True):
+            badge_class = "live" if entry["sources_are_real"] else "demo"
+            badge_label = "LIVE" if entry["sources_are_real"] else "DEMO"
+            st.markdown(
+                '<div class="ros-source-top">'
+                f'<div class="ros-source-title">{html.escape(entry["topic"])}</div>'
+                f'<span class="ros-badge {badge_class}">{badge_label}</span>'
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            meta_bits = [html.escape(_format_history_timestamp(entry["created_at"]))]
+            if entry.get("depth"):
+                meta_bits.append(f'{html.escape(entry["depth"])} depth')
+            meta_bits.append(f'{entry["source_count"]} source(s)')
+            st.markdown(
+                f'<div class="ros-source-domain">{" &nbsp;|&nbsp; ".join(meta_bits)}</div>',
+                unsafe_allow_html=True,
+            )
+            if entry["summary"]:
+                st.markdown(
+                    f'<div class="ros-source-summary">{html.escape(entry["summary"])}</div>',
+                    unsafe_allow_html=True,
+                )
+
+            open_col, delete_col = st.columns([3, 1])
+            with open_col:
+                if st.button("Open / View Report", key=f"saved-open-{entry['id']}", width="stretch"):
+                    full_entry = research_agent.load_saved_report(entry["id"])
+                    if full_entry:
+                        st.session_state["report_text"] = full_entry["report_text"]
+                        st.session_state["report_topic"] = full_entry["topic"]
+                        st.session_state["report_sources"] = full_entry["sources"]
+                        st.session_state["report_sources_are_real"] = full_entry["sources_are_real"]
+                        st.session_state["report_depth"] = full_entry.get("depth")
+                        st.session_state["active_view"] = "research"
+                        st.rerun()
+                    else:
+                        st.error("Could not find this report -- it may have already been deleted.")
+            with delete_col:
+                if st.button("Delete", key=f"saved-delete-{entry['id']}", width="stretch"):
+                    research_agent.delete_saved_report(entry["id"])
+                    st.rerun()
+
+
 # ---------------------------------------------------------------------
 # Sidebar: branding, navigation, and real (derived, not fabricated)
 # status information.
@@ -539,7 +604,7 @@ with st.sidebar:
     st.markdown('<div class="ros-nav-label">Navigate</div>', unsafe_allow_html=True)
 
     if st.button("✦  New Research", key="nav-new-research", width="stretch"):
-        for key in ("report_text", "report_topic", "report_sources", "report_sources_are_real"):
+        for key in ("report_text", "report_topic", "report_sources", "report_sources_are_real", "report_depth"):
             st.session_state.pop(key, None)
         st.session_state["active_view"] = "research"
         st.rerun()
@@ -548,8 +613,11 @@ with st.sidebar:
         st.session_state["active_view"] = "history"
         st.rerun()
 
+    if st.button("▤  Saved Reports", key="nav-saved-reports", width="stretch"):
+        st.session_state["active_view"] = "saved_reports"
+        st.rerun()
+
     for icon, nav_label in [
-        ("▤", "Saved Reports"),
         ("◈", "Sources Library"),
         ("⚙", "Settings"),
     ]:
@@ -608,6 +676,8 @@ st.markdown(
 
 if st.session_state["active_view"] == "history":
     render_history_view()
+elif st.session_state["active_view"] == "saved_reports":
+    render_saved_reports_view()
 else:
     # ---------------------------------------------------------------------
     # Hero + research input (the visual focus of the page)
@@ -758,6 +828,7 @@ else:
         st.session_state["report_topic"] = topic
         st.session_state["report_sources"] = sources
         st.session_state["report_sources_are_real"] = sources_are_real
+        st.session_state["report_depth"] = depth
         st.session_state["usage_count"] = st.session_state.get("usage_count", 0) + 1
 
         # Automatically save this completed research run to history, so it
@@ -856,7 +927,12 @@ else:
             if st.button("Save report to reports/ folder", width="stretch"):
                 try:
                     saved_path = research_agent.save_report_to_file(
-                        report_text, report_topic, "md"
+                        report_text,
+                        report_topic,
+                        "md",
+                        depth=st.session_state.get("report_depth"),
+                        sources=report_sources,
+                        sources_are_real=report_sources_are_real,
                     )
                     st.success(f"Report saved to: {saved_path}")
                 except Exception as error:
