@@ -352,6 +352,7 @@ st.markdown(
 # ---------------------------------------------------------------------
 st.session_state.setdefault("usage_count", 0)
 st.session_state.setdefault("active_view", "research")
+st.session_state.setdefault("default_depth", "Standard")
 
 
 # ---------------------------------------------------------------------
@@ -651,6 +652,91 @@ def render_sources_library_view():
                 st.caption("No URL available for this source.")
 
 
+def render_settings_view():
+    """
+    Render the Settings page: real, functional controls built entirely on
+    top of the existing architecture -- no fabricated toggles. Covers AI
+    engine configuration status (+ a live test call), the default research
+    depth used on the New Research page, session usage, and data
+    management actions that reuse the existing history/reports storage.
+    """
+    st.markdown('<div class="ros-section-label">Settings</div>', unsafe_allow_html=True)
+
+    with st.container(border=True):
+        st.markdown('<div class="ros-card-title">AI Engine (OpenRouter)</div>', unsafe_allow_html=True)
+        engine_online = openrouter_client.is_configured()
+        model_name = openrouter_client.get_model_name()
+        st.markdown(
+            f'<div class="ros-source-domain">'
+            f'<span class="ros-dot{"" if engine_online else " off"}"></span>'
+            f'{"Configured" if engine_online else "Not configured"} &nbsp;|&nbsp; Model: {html.escape(model_name)}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        if not engine_online:
+            st.caption(
+                "No OPENROUTER_API_KEY found. Add it to your local .env file "
+                "(see .env.example) or to Streamlit Secrets when deployed. "
+                "Research will still work using demo analysis until then."
+            )
+        st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
+        if st.button("Test AI Connection", key="settings-test-ai"):
+            if not engine_online:
+                st.warning("No API key configured -- nothing to test yet.")
+            else:
+                with st.spinner("Sending a test request to OpenRouter..."):
+                    try:
+                        openrouter_client.chat_completion(
+                            messages=[{"role": "user", "content": "Reply with the single word: OK"}],
+                            temperature=0,
+                            max_tokens=5,
+                        )
+                        st.success("Connection successful -- OpenRouter responded.")
+                    except openrouter_client.OpenRouterError as error:
+                        st.error(f"Connection failed: {error}")
+
+    with st.container(border=True):
+        st.markdown('<div class="ros-card-title">Research Defaults</div>', unsafe_allow_html=True)
+        st.caption("Used to pre-select the depth on the New Research page.")
+        chosen_default = st.pills(
+            "Default research depth",
+            options=["Quick", "Standard", "Detailed"],
+            default=st.session_state["default_depth"],
+            label_visibility="collapsed",
+            key="settings-default-depth",
+        )
+        if chosen_default and chosen_default != st.session_state["default_depth"]:
+            st.session_state["default_depth"] = chosen_default
+            st.rerun()
+
+    with st.container(border=True):
+        st.markdown('<div class="ros-card-title">Session</div>', unsafe_allow_html=True)
+        st.caption(f'{st.session_state["usage_count"]} research request(s) run this session.')
+        if st.button("Reset Session Usage Counter", key="settings-reset-usage"):
+            st.session_state["usage_count"] = 0
+            st.rerun()
+
+    with st.container(border=True):
+        st.markdown('<div class="ros-card-title">Data Management</div>', unsafe_allow_html=True)
+        history_count = len(research_agent.list_history_entries())
+        saved_count = len(research_agent.list_saved_reports())
+        st.caption(f"{history_count} history entr(ies) &nbsp;|&nbsp; {saved_count} saved report(s)")
+
+        clear_col1, clear_col2 = st.columns(2)
+        with clear_col1:
+            if st.button("Clear Research History", key="settings-clear-history", width="stretch"):
+                for entry in research_agent.list_history_entries():
+                    research_agent.delete_history_entry(entry["id"])
+                st.success("Research History cleared.")
+                st.rerun()
+        with clear_col2:
+            if st.button("Clear Saved Reports", key="settings-clear-saved", width="stretch"):
+                for entry in research_agent.list_saved_reports():
+                    research_agent.delete_saved_report(entry["id"])
+                st.success("Saved Reports cleared.")
+                st.rerun()
+
+
 # ---------------------------------------------------------------------
 # Sidebar: branding, navigation, and real (derived, not fabricated)
 # status information.
@@ -693,14 +779,9 @@ with st.sidebar:
         st.session_state["active_view"] = "sources_library"
         st.rerun()
 
-    for icon, nav_label in [
-        ("⚙", "Settings"),
-    ]:
-        st.markdown(
-            f'<div class="ros-nav-item"><span><span class="ros-nav-icon">{icon}</span>{nav_label}</span>'
-            '<span class="ros-nav-soon">Soon</span></div>',
-            unsafe_allow_html=True,
-        )
+    if st.button("⚙  Settings", key="nav-settings", width="stretch"):
+        st.session_state["active_view"] = "settings"
+        st.rerun()
 
     usage_count = min(st.session_state["usage_count"], 50)
     usage_pct = round((usage_count / 50) * 100)
@@ -755,6 +836,8 @@ elif st.session_state["active_view"] == "saved_reports":
     render_saved_reports_view()
 elif st.session_state["active_view"] == "sources_library":
     render_sources_library_view()
+elif st.session_state["active_view"] == "settings":
+    render_settings_view()
 else:
     # ---------------------------------------------------------------------
     # Hero + research input (the visual focus of the page)
@@ -769,11 +852,11 @@ else:
         unsafe_allow_html=True,
     )
 
-    with st.container(border=True):
+    with st.form(key="research-form", border=True):
         st.markdown('<div class="ros-card-title">Research Question</div>', unsafe_allow_html=True)
         topic_input = st.text_input(
             "Research Topic",
-            placeholder="What would you like to research?",
+            placeholder="What would you like to research? (Press Enter to start)",
             label_visibility="collapsed",
         )
 
@@ -781,14 +864,16 @@ else:
         depth_choice = st.pills(
             "Research depth",
             options=["Quick", "Standard", "Detailed"],
-            default="Standard",
+            default=st.session_state["default_depth"],
             label_visibility="collapsed",
             help="Quick uses fewer sources, Detailed uses more sources.",
         )
         depth_choice = depth_choice or "Standard"
 
         st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
-        start_button = st.button("✦  Start Research", key="start-research", type="primary", width="stretch")
+        start_button = st.form_submit_button(
+            "✦  Start Research", key="start-research", type="primary", width="stretch"
+        )
 
 
     # ---------------------------------------------------------------------
