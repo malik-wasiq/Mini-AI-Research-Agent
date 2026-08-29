@@ -12,6 +12,7 @@ import datetime
 import html
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import openrouter_client
 import pdf_export
@@ -430,6 +431,52 @@ def render_source_cards_html(sources, sources_are_real):
             "</div>"
         )
     return "".join(parts)
+
+
+REPORT_ANCHOR_ID = "research-report-anchor"
+
+
+def _scroll_to_report_on_mobile():
+    """
+    Right after a fresh report finishes generating, smoothly scroll it
+    into view -- but only on phone-width viewports. Desktop is left
+    completely alone (the function returns before touching scroll
+    position at all).
+
+    "Mobile" is detected generically via the browser's own viewport
+    width at render time (matchMedia), reusing the same 768px breakpoint
+    already used by this file's responsive CSS -- no device/user-agent
+    hardcoding, and no dependency beyond Streamlit's own bundled
+    components module.
+
+    A plain <script> inside st.markdown(unsafe_allow_html=True) is not
+    reliably executed by Streamlit (it's inserted via innerHTML, which
+    browsers ignore for <script> tags), so this runs inside a
+    components.html iframe instead -- the standard, reliable way to run
+    JS in a Streamlit app. Since that iframe is a separate document from
+    the main page, it reaches back into the parent page via
+    window.parent to find and scroll the anchor element.
+    """
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            try {{
+                var parentWindow = window.parent;
+                var isMobileViewport = parentWindow.matchMedia("(max-width: 768px)").matches;
+                if (!isMobileViewport) {{ return; }}
+                var target = parentWindow.document.getElementById("{REPORT_ANCHOR_ID}");
+                if (target) {{
+                    target.scrollIntoView({{behavior: "smooth", block: "start"}});
+                }}
+            }} catch (err) {{
+                // A scroll-positioning nicety should never break the app.
+            }}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 def render_report_cards(report_text, sources, sources_are_real):
@@ -1001,6 +1048,12 @@ else:
         st.session_state["report_depth"] = depth
         st.session_state["usage_count"] = st.session_state.get("usage_count", 0) + 1
 
+        # One-shot flag: the results section below consumes (pops) this on
+        # the same script run to trigger the mobile auto-scroll-to-report,
+        # so it only fires right after a fresh generation -- not on later
+        # reruns like clicking a download button.
+        st.session_state["_scroll_to_report_pending"] = True
+
         # Automatically save this completed research run to history, so it
         # can be reopened later without re-running research. A history-save
         # failure (e.g. disk issue) must never turn a successful research
@@ -1033,6 +1086,10 @@ else:
     # Shown whenever a report exists in session_state, so it stays the
     # visual focus even after later reruns (e.g. clicking a download button).
     # ---------------------------------------------------------------------
+    st.markdown(f'<div id="{REPORT_ANCHOR_ID}"></div>', unsafe_allow_html=True)
+    if st.session_state.pop("_scroll_to_report_pending", False):
+        _scroll_to_report_on_mobile()
+
     if "report_text" in st.session_state:
         st.markdown('<div class="ros-section-label">Research Report</div>', unsafe_allow_html=True)
         render_report_cards(
