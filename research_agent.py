@@ -29,7 +29,26 @@ _BULLET_PREFIX_RE = re.compile(r"^(?:[-*•]|\d+[.)])\s*")
 # tied to any topic) so it can be filtered out rather than shown to users
 # as if it were real analysis.
 _PLACEHOLDER_ITEM_RE = re.compile(
-    r"^(?:finding|question|theme|benefit|challenge|gap|contradiction)\s*\d+$",
+    r"^(?:finding|question|theme|benefit|challenge|gap|contradiction|"
+    r"insight|implication|answer)\s*\d+$",
+    re.IGNORECASE,
+)
+
+# Sections that don't genuinely apply to a given question are asked to be
+# marked "N/A" rather than padded with irrelevant content -- this is what
+# lets the report adapt to the question (skip inapplicable sections)
+# instead of always rendering a fixed template.
+_NOT_APPLICABLE_RE = re.compile(r"^(?:n/?a|not applicable|none applicable)\.?$", re.IGNORECASE)
+
+# A model that is uncertain how to fill in an optional/"N/A" section can
+# leak its own deliberation about the format itself instead of a clean
+# answer or a clean "N/A" -- e.g. "benefit 2 (or - N/A)", 'not relevant =>
+# "- N/A"', "That's two themes.". None of this is topic-specific; it's
+# generic self-referential commentary about the prompt/template that can
+# leak for any question, so it's filtered the same way regardless of topic.
+_META_COMMENTARY_RE = re.compile(
+    r"(=>|\(or\s|\(maybe\b|\bnot relevant\b|\bnot given\b|\bnot applicable\b|"
+    r"\bthat'?s (?:one|two|three|four|\d+)\b|\bneed \d|\bbut \d(?:-|\s*to\s*)\d)",
     re.IGNORECASE,
 )
 
@@ -40,6 +59,17 @@ _PLACEHOLDER_ITEM_RE = re.compile(
 # topic-specific rule.
 _MAX_BULLET_ITEM_CHARS = 400
 
+# A real bullet is a short but complete statement -- at least a few real
+# words. Catches degenerate output like "..." or a mid-word-truncated
+# fragment left over from a cut-off response, generically (not tied to
+# any topic's vocabulary).
+_MIN_BULLET_WORD_COUNT = 3
+
+# A DIRECT_ANSWER paragraph is a few real sentences -- reject anything too
+# short to be a real answer, or implausibly long (usually a reasoning leak).
+_MIN_PARAGRAPH_CHARS = 15
+_MAX_PARAGRAPH_CHARS = 1200
+
 
 def _strip_bullet_prefix(text):
     return _BULLET_PREFIX_RE.sub("", text, count=1).strip()
@@ -48,17 +78,61 @@ def _strip_bullet_prefix(text):
 def _is_valid_bullet_item(item_text):
     """
     Reject AI-response bullets that are obviously not real content: an
-    echoed template placeholder, or a wall of text far longer than the
-    single concise sentence the prompt asked for (usually leaked
-    reasoning/scratchpad text from the model).
+    echoed template placeholder, an explicit "N/A" (the model correctly
+    declining an inapplicable optional section), leaked meta-commentary
+    about the prompt/format itself, a content-free fragment (too few real
+    words), or a wall of text far longer than the single concise sentence
+    the prompt asked for (usually leaked reasoning/scratchpad text).
     """
     if not item_text:
         return False
     if _PLACEHOLDER_ITEM_RE.match(item_text):
         return False
+    if _NOT_APPLICABLE_RE.match(item_text):
+        return False
+    if _META_COMMENTARY_RE.search(item_text):
+        return False
     if len(item_text) > _MAX_BULLET_ITEM_CHARS:
         return False
+    if len(re.findall(r"[A-Za-z]+", item_text)) < _MIN_BULLET_WORD_COUNT:
+        return False
     return True
+
+
+def _is_valid_paragraph_text(text):
+    """Same idea as _is_valid_bullet_item, sized for a short paragraph."""
+    if not text:
+        return False
+    if _NOT_APPLICABLE_RE.match(text):
+        return False
+    if len(text) < _MIN_PARAGRAPH_CHARS or len(text) > _MAX_PARAGRAPH_CHARS:
+        return False
+    return True
+
+
+def _normalized_words(text):
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _is_redundant(candidate, existing_items, overlap_threshold=0.6):
+    """
+    True if `candidate` substantially restates something already present
+    in existing_items (word-overlap heuristic). Used to keep "Useful
+    Insights" genuinely additive rather than a reworded repeat of a Key
+    Finding, Benefit, or Challenge already shown elsewhere in the report
+    -- a safety net beyond the prompt's own instruction not to repeat.
+    """
+    candidate_words = _normalized_words(candidate)
+    if not candidate_words:
+        return True
+    for existing in existing_items:
+        existing_words = _normalized_words(existing)
+        if not existing_words:
+            continue
+        overlap = len(candidate_words & existing_words) / len(candidate_words)
+        if overlap >= overlap_threshold:
+            return True
+    return False
 
 # How many sources to use, based on the research depth the user picked.
 # This is just a simple lookup dictionary.
@@ -178,19 +252,81 @@ def _parse_labeled_bullet_sections(ai_text, section_labels):
     return sections
 
 
+def _parse_mixed_sections(ai_text, bullet_labels, paragraph_labels):
+    """
+    Like _parse_labeled_bullet_sections, but also supports "paragraph"
+    labels (e.g. DIRECT_ANSWER) whose content is free-flowing text rather
+    than a bullet list. Returns a dict covering every label: bullet labels
+    map to a list of validated bullet strings, paragraph labels map to a
+    single validated string (possibly "" if nothing usable was found).
+    """
+    all_labels = list(bullet_labels) + list(paragraph_labels)
+    sections = {label: ([] if label in bullet_labels else "") for label in all_labels}
+    paragraph_buffers = {label: [] for label in paragraph_labels}
+    current_label = None
+
+    for raw_line in ai_text.splitlines():
+        line = raw_line.replace("**", "").strip().lstrip("#").strip()
+        if not line:
+            continue
+
+        normalized = line.upper().replace(" ", "_")
+        matched_label = None
+        remainder = ""
+        for label in all_labels:
+            prefix = label + ":"
+            if normalized.startswith(prefix):
+                matched_label = label
+                remainder = line[len(prefix):].strip()
+                break
+
+        if matched_label:
+            current_label = matched_label
+            if matched_label in paragraph_labels:
+                if remainder:
+                    paragraph_buffers[matched_label].append(remainder)
+            else:
+                item_text = _strip_bullet_prefix(remainder)
+                if _is_valid_bullet_item(item_text):
+                    sections[matched_label].append(item_text)
+            continue
+
+        if current_label is None:
+            continue
+
+        if current_label in paragraph_labels:
+            paragraph_buffers[current_label].append(line)
+        elif _BULLET_PREFIX_RE.match(line):
+            item_text = _strip_bullet_prefix(line)
+            if _is_valid_bullet_item(item_text):
+                sections[current_label].append(item_text)
+
+    for label in paragraph_labels:
+        text = " ".join(paragraph_buffers[label]).strip()
+        sections[label] = text if _is_valid_paragraph_text(text) else ""
+
+    return sections
+
+
 def analyze_information(topic, collected_items):
     """
-    Analyze the collected demo source text.
+    Analyze the collected source text and produce a direct answer to the
+    user's actual question, plus key findings and follow-up research
+    questions.
 
     If an OpenRouter API key is configured, this asks the AI model to read
-    the collected demo source summaries and produce real key findings and
-    research questions. If no key is configured, or the request fails for
-    any reason, it falls back to the static demo analysis so the app keeps
-    working without crashing.
+    the collected source summaries and produce real analysis grounded in
+    them. If no key is configured, or the request fails for any reason, it
+    falls back to the static demo analysis so the app keeps working
+    without crashing.
     """
     topic_data = find_topic_data(topic)
 
     fallback_analysis = {
+        "direct_answer": (
+            "A live AI-generated direct answer wasn't available for this "
+            f"run. See Key Findings below for the demo information gathered on '{topic}'."
+        ),
         "key_findings": topic_data["key_findings"],
         "research_questions": topic_data["research_questions"],
         "ai_powered": False,
@@ -206,25 +342,33 @@ def analyze_information(topic, collected_items):
     )
 
     prompt = (
-        f'You are a research analyst. Topic: "{topic}".\n\n'
-        f"Here are summaries collected from a few demo sources:\n{source_text}\n\n"
-        "Based only on this information, respond in EXACTLY this format "
-        "(no extra headings, no extra commentary):\n\n"
+        "You are a research analyst. The user asked exactly this "
+        f'question: "{topic}"\n\n'
+        f"Here are summaries collected from real sources:\n{source_text}\n\n"
+        "Your job is to actually answer the user's question using ONLY "
+        "this information. Respond in EXACTLY this format (no extra "
+        "headings, no extra commentary):\n\n"
+        "DIRECT_ANSWER:\n<2-4 sentences that directly and concretely "
+        "answer the user's exact question above>\n\n"
         "KEY_FINDINGS:\n- finding 1\n- finding 2\n- finding 3\n- finding 4\n\n"
         "RESEARCH_QUESTIONS:\n- question 1\n- question 2\n- question 3\n\n"
-        "Keep each bullet to a single concise sentence."
+        "Ground every statement in the provided source summaries -- do "
+        "not invent facts the sources don't support. Keep each bullet to "
+        "a single concise sentence."
     )
 
     try:
         ai_text = openrouter_client.chat_completion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
-            max_tokens=900,
+            max_tokens=1300,
         )
-        parsed = _parse_labeled_bullet_sections(
-            ai_text, ["KEY_FINDINGS", "RESEARCH_QUESTIONS"]
+        parsed = _parse_mixed_sections(
+            ai_text,
+            bullet_labels=["KEY_FINDINGS", "RESEARCH_QUESTIONS"],
+            paragraph_labels=["DIRECT_ANSWER"],
         )
-        if not parsed["KEY_FINDINGS"] and not parsed["RESEARCH_QUESTIONS"]:
+        if not parsed["DIRECT_ANSWER"] and not parsed["KEY_FINDINGS"] and not parsed["RESEARCH_QUESTIONS"]:
             raise openrouter_client.OpenRouterError(
                 "AI response did not contain any usable content."
             )
@@ -234,11 +378,12 @@ def analyze_information(topic, collected_items):
         # back to demo content, instead of discarding the whole response.
         missing = [
             label
-            for label, key in (("KEY_FINDINGS", "key_findings"), ("RESEARCH_QUESTIONS", "research_questions"))
+            for label in ("DIRECT_ANSWER", "KEY_FINDINGS", "RESEARCH_QUESTIONS")
             if not parsed[label]
         ]
 
         return {
+            "direct_answer": parsed["DIRECT_ANSWER"] or fallback_analysis["direct_answer"],
             "key_findings": parsed["KEY_FINDINGS"] or fallback_analysis["key_findings"],
             "research_questions": parsed["RESEARCH_QUESTIONS"] or fallback_analysis["research_questions"],
             "ai_powered": True,
@@ -252,10 +397,23 @@ def analyze_information(topic, collected_items):
         return fallback_analysis
 
 
+_NO_NOVEL_INSIGHTS_MESSAGE = (
+    "No additional insights beyond the Key Findings above could be "
+    "confidently generated for this topic."
+)
+
+
 def synthesize_findings(topic, analysis, sources):
     """
     Synthesize (combine) the findings into higher-level insights: themes,
-    benefits, challenges, contradictions, and research gaps.
+    benefits, challenges, practical implications, contradictions, research
+    gaps, and "useful insights" that go genuinely beyond restating the
+    findings above.
+
+    BENEFITS, CHALLENGES, and PRACTICAL_IMPLICATIONS are optional -- the
+    model is told to answer "N/A" for any of them that doesn't genuinely
+    apply to this specific question, so the final report only shows
+    sections that actually apply instead of a fixed template every time.
 
     Uses OpenRouter AI when a key is configured and the request succeeds;
     otherwise falls back to the static demo synthesis.
@@ -266,8 +424,13 @@ def synthesize_findings(topic, analysis, sources):
         "themes": topic_data["themes"],
         "benefits": topic_data["benefits"],
         "challenges": topic_data["challenges"],
+        "practical_implications": [],
         "gaps": topic_data["gaps"],
         "contradictions": topic_data["contradictions"],
+        "useful_insights": [
+            "Live AI-generated insights weren't available for this run -- "
+            "see Key Findings and Sources above for the underlying evidence."
+        ],
         "ai_powered": False,
         "ai_error": None,
     }
@@ -279,16 +442,34 @@ def synthesize_findings(topic, analysis, sources):
     source_names = ", ".join(source["name"] for source in sources)
 
     prompt = (
-        f'You are a research analyst synthesizing findings about "{topic}".\n\n'
+        "You are a research analyst synthesizing findings to help answer "
+        f'this exact question: "{topic}"\n\n'
         f"Key findings from the analysis stage:\n{findings_text}\n\n"
-        f"Demo sources used: {source_names}\n\n"
+        f"Sources used: {source_names}\n\n"
         "Based only on this information, respond in EXACTLY this format "
         "(no extra headings, no extra commentary):\n\n"
         "THEMES:\n- theme 1\n- theme 2\n\n"
-        "BENEFITS:\n- benefit 1\n- benefit 2\n\n"
-        "CHALLENGES:\n- challenge 1\n- challenge 2\n\n"
-        "GAPS:\n- gap 1\n- gap 2\n\n"
+        "BENEFITS:\n- benefit 1\n- benefit 2\n"
+        '(write "- N/A" as the only line if benefits/opportunities are '
+        "genuinely not relevant to this question)\n\n"
+        "CHALLENGES:\n- challenge 1\n- challenge 2\n"
+        '(write "- N/A" as the only line if risks/challenges are '
+        "genuinely not relevant to this question)\n\n"
+        "PRACTICAL_IMPLICATIONS:\n- implication 1\n- implication 2\n"
+        "(concrete, actionable guidance for someone asking this exact "
+        "question -- what to do, what to consider, or how to choose "
+        'between options being compared; write "- N/A" as the only line '
+        "if this genuinely doesn't apply)\n\n"
+        "GAPS:\n- gap 1\n- gap 2\n"
+        "(open questions, uncertainties, or limitations of this research; "
+        'write "- N/A" as the only line if none apply)\n\n'
         'CONTRADICTIONS:\n- contradiction 1 (write "- None noted" if there are none)\n\n'
+        "USEFUL_INSIGHTS:\n- insight 1\n- insight 2\n"
+        "(2 to 4 genuinely valuable insights a careful reader would NOT "
+        'get from just skimming the sections above -- connections between '
+        'facts, non-obvious trade-offs, or concrete "so what" implications. '
+        "Do NOT repeat or rephrase any Key Finding, Benefit, or Challenge "
+        "already listed.)\n\n"
         "Keep each bullet to a single concise sentence."
     )
 
@@ -296,47 +477,60 @@ def synthesize_findings(topic, analysis, sources):
         ai_text = openrouter_client.chat_completion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
-            max_tokens=1100,
+            max_tokens=1700,
         )
-        labels = ["THEMES", "BENEFITS", "CHALLENGES", "GAPS", "CONTRADICTIONS"]
+        labels = [
+            "THEMES", "BENEFITS", "CHALLENGES", "PRACTICAL_IMPLICATIONS",
+            "GAPS", "CONTRADICTIONS", "USEFUL_INSIGHTS",
+        ]
         parsed = _parse_labeled_bullet_sections(ai_text, labels)
         if not any(parsed[label] for label in labels):
             raise openrouter_client.OpenRouterError(
                 "AI response did not contain any usable content."
             )
 
-        # Preserve whatever the AI actually produced. Only the specific
-        # section(s) it left empty (e.g. cut off by a token limit) fall
-        # back to demo content, instead of discarding the whole response.
-        field_by_label = {
-            "THEMES": "themes",
-            "BENEFITS": "benefits",
-            "CHALLENGES": "challenges",
-            "GAPS": "gaps",
-            "CONTRADICTIONS": "contradictions",
-        }
-        missing = [label for label in labels if not parsed[label]]
+        # THEMES and GAPS are the two sections every real response should
+        # be able to say something about, so they anchor the "was this
+        # response actually complete" check. BENEFITS/CHALLENGES/
+        # PRACTICAL_IMPLICATIONS are excluded from that check: empty there
+        # is a valid, intentional "N/A" outcome, not a failure.
+        missing = [label for label in ("THEMES", "GAPS") if not parsed[label]]
 
         # "- None noted" is a valid, intentional answer for CONTRADICTIONS,
         # so filter it out of AI-sourced results only (not demo fallback,
         # which is already curated real content, not a placeholder).
         raw_contradictions = parsed["CONTRADICTIONS"]
-        contradictions = (
-            [item for item in raw_contradictions if "none" not in item.lower()]
-            if raw_contradictions
-            else fallback_synthesis["contradictions"]
-        )
+        contradictions = [item for item in raw_contradictions if "none" not in item.lower()]
+
+        # Useful Insights must be genuinely additive, not a repeat of
+        # findings/benefits/challenges already shown elsewhere in the
+        # report, and not a near-paraphrase of an insight already kept --
+        # a model that over-generates tends to restate the same one or
+        # two ideas several times. Filtering against the growing "already
+        # shown" pool (not just the original findings/benefits/challenges)
+        # catches that, and capping at 4 keeps the section to the "2-4
+        # genuinely valuable insights" the prompt asked for.
+        already_shown = list(analysis["key_findings"]) + list(parsed["BENEFITS"]) + list(parsed["CHALLENGES"])
+        useful_insights = []
+        for item in parsed["USEFUL_INSIGHTS"]:
+            if _is_redundant(item, already_shown):
+                continue
+            useful_insights.append(item)
+            already_shown.append(item)
+            if len(useful_insights) >= 4:
+                break
 
         return {
             "themes": parsed["THEMES"] or fallback_synthesis["themes"],
-            "benefits": parsed["BENEFITS"] or fallback_synthesis["benefits"],
-            "challenges": parsed["CHALLENGES"] or fallback_synthesis["challenges"],
+            "benefits": parsed["BENEFITS"],
+            "challenges": parsed["CHALLENGES"],
+            "practical_implications": parsed["PRACTICAL_IMPLICATIONS"],
             "gaps": parsed["GAPS"] or fallback_synthesis["gaps"],
             "contradictions": contradictions,
+            "useful_insights": useful_insights or [_NO_NOVEL_INSIGHTS_MESSAGE],
             "ai_powered": True,
             "ai_error": (
-                f"AI response was incomplete; demo data filled in: "
-                f"{', '.join(field_by_label[label] for label in missing)}."
+                f"AI response was incomplete; demo data filled in: {', '.join(label.title() for label in missing)}."
                 if missing else None
             ),
         }
@@ -396,59 +590,53 @@ def generate_report(topic, depth, plan, sources, analysis, synthesis, sources_ar
     lines.append(topic)
     lines.append("")
 
+    # Executive Summary doubles as the "Direct Answer" to the user's exact
+    # question when the AI produced one -- otherwise fall back to the
+    # templated meta-summary. Kept under the same "Executive Summary"
+    # heading (rather than a separate "Direct Answer" heading) because
+    # save_report_to_file/save_history_entry already extract this exact
+    # heading as the stored summary for History/Saved Reports.
     lines.append("## Executive Summary")
     lines.append("")
-    lines.append(
-        f"This report explores '{topic}' using "
-        f"{'real, live web sources' if sources_are_real else 'no live web sources (none could be found for this topic)'} "
-        f"and {'AI-generated' if ai_powered else 'demo'} analysis. It follows a "
-        f"{depth.lower()} research process covering planning, source discovery, "
-        "analysis, and synthesis of key findings."
-    )
+    direct_answer = (analysis.get("direct_answer") or "").strip()
+    if direct_answer:
+        lines.append(direct_answer)
+    else:
+        lines.append(
+            f"This report explores '{topic}' using "
+            f"{'real, live web sources' if sources_are_real else 'no live web sources (none could be found for this topic)'} "
+            f"and {'AI-generated' if ai_powered else 'demo'} analysis. It follows a "
+            f"{depth.lower()} research process covering planning, source discovery, "
+            "analysis, and synthesis of key findings."
+        )
     lines.append("")
 
-    lines.append("## Research Questions")
-    lines.append("")
-    for question in analysis["research_questions"]:
-        lines.append(f"- {question}")
-    lines.append("")
-
-    lines.append("## Key Findings")
-    lines.append("")
-    for finding in analysis["key_findings"]:
-        lines.append(f"- {finding}")
-    lines.append("")
-
-    lines.append("## Major Themes")
-    lines.append("")
-    for theme in synthesis["themes"]:
-        lines.append(f"- {theme}")
-    lines.append("")
-
-    lines.append("## Benefits / Opportunities")
-    lines.append("")
-    for benefit in synthesis["benefits"]:
-        lines.append(f"- {benefit}")
-    lines.append("")
-
-    lines.append("## Challenges / Limitations")
-    lines.append("")
-    for challenge in synthesis["challenges"]:
-        lines.append(f"- {challenge}")
-    lines.append("")
-
-    lines.append("## Research Gaps")
-    lines.append("")
-    for gap in synthesis["gaps"]:
-        lines.append(f"- {gap}")
-    lines.append("")
-
-    if synthesis["contradictions"]:
-        lines.append("## Contradictions Found")
+    def add_bullet_section(heading, items):
+        # Only emit a section when there's actually something to show --
+        # this is what lets the report adapt to the question (e.g. a
+        # "Comparisons"-shaped question naturally fills Practical
+        # Implications while a pure factual question leaves Benefits/
+        # Challenges empty) instead of always rendering a fixed template.
+        if not items:
+            return
+        lines.append(f"## {heading}")
         lines.append("")
-        for contradiction in synthesis["contradictions"]:
-            lines.append(f"- {contradiction}")
+        for item in items:
+            lines.append(f"- {item}")
         lines.append("")
+
+    add_bullet_section("Key Findings", analysis["key_findings"])
+    add_bullet_section("Research Questions", analysis["research_questions"])
+    add_bullet_section("Major Themes", synthesis["themes"])
+    add_bullet_section("Benefits / Opportunities", synthesis["benefits"])
+    add_bullet_section("Risks / Challenges", synthesis["challenges"])
+    add_bullet_section("Practical Implications", synthesis.get("practical_implications", []))
+    # Useful Insights is mandatory: synthesize_findings() always returns
+    # at least one (honest, clearly-labeled) item for this list, even in
+    # full demo mode, so this section always renders.
+    add_bullet_section("Useful Insights", synthesis["useful_insights"])
+    add_bullet_section("Research Gaps / Limitations", synthesis["gaps"])
+    add_bullet_section("Contradictions Found", synthesis["contradictions"])
 
     lines.append("## Conclusion")
     lines.append("")
