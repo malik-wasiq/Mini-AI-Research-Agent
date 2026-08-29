@@ -10,6 +10,7 @@
 # API key required. Errors here are always raised as WebSearchError so
 # callers can fall back to demo data safely.
 
+import re
 from urllib.parse import quote
 
 import requests
@@ -19,12 +20,51 @@ WIKI_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
 REQUEST_TIMEOUT_SECONDS = 10
 USER_AGENT = "Mini-AI-Research-Agent/1.0 (Streamlit research demo project)"
 
+# Matches generic conversational wrappers around a question (e.g. "Tell me
+# something about ...", "What is ...?"), regardless of topic. Wikipedia's
+# search ranks on keyword relevance across the whole query string, so these
+# filler words get scored right alongside the actual topic -- for topics
+# whose real keywords are common/strong (e.g. "generative AI") the correct
+# page still wins, but for narrower topics (e.g. "thallium scan") the filler
+# words can outweigh the one or two words that actually matter, burying the
+# relevant page under unrelated results that happen to match "tell", "me",
+# "about", etc. Stripping the wrapper before searching fixes this generically
+# for any topic, without hardcoding topic-specific logic.
+_CONVERSATIONAL_PREFIX_RE = re.compile(
+    r"^(?:please\s+)?(?:"
+    r"tell me (?:something )?about|"
+    r"can you tell me about|"
+    r"could you tell me about|"
+    r"i want to know about|"
+    r"give me (?:some )?information (?:on|about)|"
+    r"what (?:is|are|was|were)|"
+    r"who (?:is|are|was|were)|"
+    r"explain|"
+    r"describe|"
+    r"define"
+    r")\s+",
+    re.IGNORECASE,
+)
+
 
 class WebSearchError(Exception):
     """
     Raised whenever a live web search or page fetch can't be completed.
     Callers should catch this and fall back to demo data.
     """
+
+
+def _clean_search_query(topic):
+    """
+    Strip a generic conversational wrapper and trailing punctuation from a
+    raw user question before sending it to the search engine's relevance
+    ranking. Falls back to the original topic if cleaning would leave
+    nothing behind.
+    """
+    cleaned = topic.strip()
+    stripped = _CONVERSATIONAL_PREFIX_RE.sub("", cleaned, count=1).strip()
+    stripped = stripped.rstrip("?").strip()
+    return stripped or cleaned
 
 
 def search_web(query, max_results=3):
@@ -34,13 +74,14 @@ def search_web(query, max_results=3):
     pages. Raises WebSearchError on any network problem or if no
     results are found.
     """
+    search_query = _clean_search_query(query)
     try:
         response = requests.get(
             WIKI_SEARCH_URL,
             params={
                 "action": "query",
                 "list": "search",
-                "srsearch": query,
+                "srsearch": search_query,
                 "format": "json",
                 "srlimit": max_results,
             },

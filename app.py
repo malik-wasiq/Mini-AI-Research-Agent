@@ -401,6 +401,14 @@ def render_workflow(placeholder, active_index):
 
 def render_source_cards_html(sources, sources_are_real):
     """Build escaped HTML for a set of premium source cards."""
+    if not sources:
+        return (
+            '<div class="ros-source-summary">'
+            "⚠ Insufficient live sources — a live web search for this topic did "
+            "not return any usable results. No demo/placeholder sources are "
+            "shown in their place."
+            "</div>"
+        )
     badge_class = "live" if sources_are_real else "demo"
     badge_label = "LIVE SOURCE" if sources_are_real else "DEMO SOURCE"
     parts = []
@@ -937,9 +945,9 @@ else:
         if sources_are_real:
             status_placeholder.caption(f"✓ Found {len(sources)} live source(s) via real-time web search.")
         elif source_error:
-            status_placeholder.caption(f"⚠ Live search unavailable, using demo sources. ({source_error})")
+            status_placeholder.caption(f"⚠ Insufficient live sources for this topic. ({source_error})")
         else:
-            status_placeholder.caption("Using demo sources for this run.")
+            status_placeholder.caption("⚠ Insufficient live sources for this topic.")
 
         # ---- Stage: Sources (collection) ----
         render_workflow(workflow_placeholder, active_index=1)

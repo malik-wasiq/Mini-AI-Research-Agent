@@ -148,6 +148,13 @@ def generate_pdf(report_text, topic, sources, sources_are_real):
         story.extend(_section_body_flowables(body, styles))
 
     story.append(Paragraph(f"Sources ({len(sources)})", styles["SectionHeading"]))
+    if not sources:
+        story.append(Paragraph(
+            "Insufficient live sources -- a live web search for this topic did "
+            "not return any usable results. No demo/placeholder sources are "
+            "shown in their place.",
+            styles["Body"],
+        ))
     for source in sources:
         story.append(Paragraph(_inline_markup(source["name"]), styles["SourceName"]))
         story.append(Paragraph(_inline_markup(source["topic"]), styles["SourceMeta"]))
