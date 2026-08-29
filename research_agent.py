@@ -22,9 +22,43 @@ from mock_data import find_topic_data
 
 _BULLET_PREFIX_RE = re.compile(r"^(?:[-*•]|\d+[.)])\s*")
 
+# The analysis/synthesis prompts show the model an example format using
+# literal placeholders ("- finding 1", "- theme 1", ...). A weaker/free
+# model can degrade into echoing those placeholders back verbatim instead
+# of filling them in -- this matches that failure mode generically (not
+# tied to any topic) so it can be filtered out rather than shown to users
+# as if it were real analysis.
+_PLACEHOLDER_ITEM_RE = re.compile(
+    r"^(?:finding|question|theme|benefit|challenge|gap|contradiction)\s*\d+$",
+    re.IGNORECASE,
+)
+
+# The prompts explicitly ask for "a single concise sentence" per bullet.
+# A model that instead leaks its own reasoning/scratchpad text produces
+# bullets many times longer than any real single-sentence finding -- this
+# length cap is a generic sanity check on that instruction, not a
+# topic-specific rule.
+_MAX_BULLET_ITEM_CHARS = 400
+
 
 def _strip_bullet_prefix(text):
     return _BULLET_PREFIX_RE.sub("", text, count=1).strip()
+
+
+def _is_valid_bullet_item(item_text):
+    """
+    Reject AI-response bullets that are obviously not real content: an
+    echoed template placeholder, or a wall of text far longer than the
+    single concise sentence the prompt asked for (usually leaked
+    reasoning/scratchpad text from the model).
+    """
+    if not item_text:
+        return False
+    if _PLACEHOLDER_ITEM_RE.match(item_text):
+        return False
+    if len(item_text) > _MAX_BULLET_ITEM_CHARS:
+        return False
+    return True
 
 # How many sources to use, based on the research depth the user picked.
 # This is just a simple lookup dictionary.
@@ -132,13 +166,13 @@ def _parse_labeled_bullet_sections(ai_text, section_labels):
         if matched_label:
             current_label = matched_label
             item_text = _strip_bullet_prefix(remainder)
-            if item_text:
+            if _is_valid_bullet_item(item_text):
                 sections[current_label].append(item_text)
             continue
 
         if current_label and _BULLET_PREFIX_RE.match(line):
             item_text = _strip_bullet_prefix(line)
-            if item_text:
+            if _is_valid_bullet_item(item_text):
                 sections[current_label].append(item_text)
 
     return sections

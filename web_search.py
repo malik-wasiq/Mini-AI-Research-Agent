@@ -46,12 +46,30 @@ _CONVERSATIONAL_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
-
-class WebSearchError(Exception):
-    """
-    Raised whenever a live web search or page fetch can't be completed.
-    Callers should catch this and fall back to demo data.
-    """
+# Generic English function words, used only to find the *significant*
+# keywords in a query -- not specific to any topic. Wikipedia's search API
+# occasionally ranks a tangentially-matching page (e.g. an institution whose
+# article happens to share little beyond a stray word with the query) among
+# the top results even for a clean query. Rather than trusting the search
+# engine's ranking alone, a retrieved source is only kept if at least one of
+# the query's real keywords actually appears in that source's own title or
+# fetched content -- a cheap, topic-agnostic relevance check.
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "then", "so", "because",
+    "of", "in", "on", "at", "to", "for", "with", "from", "by", "about",
+    "into", "through", "during", "before", "after", "above", "below",
+    "up", "down", "out", "off", "over", "under", "again", "further",
+    "once", "here", "there", "when", "where", "why", "how", "all", "any",
+    "both", "each", "few", "more", "most", "other", "some", "such", "no",
+    "nor", "not", "only", "own", "same", "too", "very", "is", "are",
+    "was", "were", "be", "been", "being", "have", "has", "had", "do",
+    "does", "did", "will", "would", "could", "should", "may", "might",
+    "must", "can", "this", "that", "these", "those", "it", "its", "as",
+    "i", "me", "my", "we", "our", "you", "your", "he", "she", "they",
+    "them", "their", "who", "what", "which", "whom", "tell", "something",
+    "give", "know", "want", "explain", "describe", "define", "please",
+    "also",
+})
 
 
 def _clean_search_query(topic):
@@ -65,6 +83,31 @@ def _clean_search_query(topic):
     stripped = _CONVERSATIONAL_PREFIX_RE.sub("", cleaned, count=1).strip()
     stripped = stripped.rstrip("?").strip()
     return stripped or cleaned
+
+
+def _significant_keywords(text):
+    """Extract the topic-bearing words from a query (drops function words)."""
+    words = re.findall(r"[A-Za-z0-9]+", text.lower())
+    return {word for word in words if len(word) > 1 and word not in _STOPWORDS}
+
+
+def _is_relevant_result(keywords, title, excerpt):
+    """
+    True if the source's own title/content actually shares a real keyword
+    with the query. If the query had no extractable keywords (e.g. it was
+    just stopwords), nothing can be checked, so nothing is filtered out.
+    """
+    if not keywords:
+        return True
+    haystack = f"{title} {excerpt or ''}".lower()
+    return any(keyword in haystack for keyword in keywords)
+
+
+class WebSearchError(Exception):
+    """
+    Raised whenever a live web search or page fetch can't be completed.
+    Callers should catch this and fall back to demo data.
+    """
 
 
 def search_web(query, max_results=3):
@@ -159,14 +202,21 @@ def discover_real_sources(topic, max_results=3):
     match the rest of the research pipeline:
     {name, topic, summary, url} -- with `url` always a real, live link.
     Raises WebSearchError if the search itself fails or nothing usable
-    could be collected.
+    and relevant could be collected.
+
+    Requests more raw candidates than needed so that filtering out
+    tangential matches (see _is_relevant_result) still leaves enough
+    real, on-topic sources.
     """
-    results = search_web(topic, max_results)
+    keywords = _significant_keywords(_clean_search_query(topic))
+    results = search_web(topic, max_results * 3)
 
     sources = []
     for result in results:
         excerpt = fetch_page_excerpt(result["title"])
         if not excerpt:
+            continue
+        if not _is_relevant_result(keywords, result["title"], excerpt):
             continue
         sources.append(
             {
@@ -176,6 +226,8 @@ def discover_real_sources(topic, max_results=3):
                 "url": result["url"],
             }
         )
+        if len(sources) >= max_results:
+            break
 
     if not sources:
         raise WebSearchError("Live web results could not be read for this topic.")
