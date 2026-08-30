@@ -23,6 +23,11 @@ isn't.
   the report body, and every saved/reopened copy
 - Clear AI/source verification notice on every report (live vs. demo, per
   stage)
+- **Useful Insights** — every report includes a dedicated, mandatory section
+  of takeaways synthesized from the findings, distinct from the Key Findings
+  list rather than a repeat of it
+- On mobile, the page automatically scrolls to the newly generated report as
+  soon as research finishes
 - Download the report as Markdown, plain text, or PDF
 - Save a report to the local `reports/` folder for later
 - **Research History** — every completed run is auto-saved and can be
