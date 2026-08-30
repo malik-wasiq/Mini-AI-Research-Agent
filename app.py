@@ -333,12 +333,34 @@ st.markdown(
     .ros-section-label{ font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase;
         color:var(--muted); margin:1.6rem 0 0.6rem 0; font-weight:600; }
 
+    /* ---- Mobile nav: compact touch-friendly equivalent of the sidebar's
+       navigation. Hidden entirely outside the mobile breakpoint below --
+       the desktop sidebar above is completely untouched. ---- */
+    .st-key-ros-mobile-nav{ display:none; }
+
     /* ---- Responsive ---- */
     @media (max-width: 768px){
         .ros-hero h1{ font-size:1.9rem; }
         .ros-workflow{ overflow-x:auto; flex-wrap:nowrap; padding-bottom:0.4rem; }
         .ros-wf-stage{ min-width:84px; }
         .block-container{ padding-left:0.9rem; padding-right:0.9rem; }
+
+        .st-key-ros-mobile-nav{
+            display:block;
+            margin:0 0 1.1rem 0;
+            padding:0.35rem 0 0.5rem 0;
+            border-bottom:1px solid var(--border-soft);
+        }
+        .st-key-ros-mobile-nav [data-testid="stHorizontalBlock"]{
+            display:flex; flex-wrap:nowrap; gap:0.5rem;
+            overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
+        }
+        .st-key-ros-mobile-nav [data-testid="stHorizontalBlock"]::-webkit-scrollbar{ display:none; }
+        .st-key-ros-mobile-nav [data-testid="stColumn"]{ flex:0 0 auto; width:auto; min-width:auto; }
+        .st-key-ros-mobile-nav .stButton button{
+            white-space:nowrap; border-radius:999px; padding:0.55rem 1rem;
+            font-size:0.82rem; min-height:44px;
+        }
     }
     </style>
     <div class="ros-grid-layer"></div>
@@ -354,6 +376,20 @@ st.markdown(
 st.session_state.setdefault("usage_count", 0)
 st.session_state.setdefault("active_view", "research")
 st.session_state.setdefault("default_depth", "Standard")
+
+
+def _navigate_to(view, clear_report=False):
+    """
+    Switch the active view (and, for New Research, clear any loaded
+    report) via the same session-state routing the app already uses.
+    Shared by the desktop sidebar nav and the mobile nav bar so neither
+    one duplicates this logic.
+    """
+    if clear_report:
+        for key in ("report_text", "report_topic", "report_sources", "report_sources_are_real", "report_depth"):
+            st.session_state.pop(key, None)
+    st.session_state["active_view"] = view
+    st.rerun()
 
 
 # ---------------------------------------------------------------------
@@ -817,26 +853,19 @@ with st.sidebar:
     st.markdown('<div class="ros-nav-label">Navigate</div>', unsafe_allow_html=True)
 
     if st.button("✦  New Research", key="nav-new-research", width="stretch"):
-        for key in ("report_text", "report_topic", "report_sources", "report_sources_are_real", "report_depth"):
-            st.session_state.pop(key, None)
-        st.session_state["active_view"] = "research"
-        st.rerun()
+        _navigate_to("research", clear_report=True)
 
     if st.button("⏱  Research History", key="nav-history", width="stretch"):
-        st.session_state["active_view"] = "history"
-        st.rerun()
+        _navigate_to("history")
 
     if st.button("▤  Saved Reports", key="nav-saved-reports", width="stretch"):
-        st.session_state["active_view"] = "saved_reports"
-        st.rerun()
+        _navigate_to("saved_reports")
 
     if st.button("◈  Sources Library", key="nav-sources-library", width="stretch"):
-        st.session_state["active_view"] = "sources_library"
-        st.rerun()
+        _navigate_to("sources_library")
 
     if st.button("⚙  Settings", key="nav-settings", width="stretch"):
-        st.session_state["active_view"] = "settings"
-        st.rerun()
+        _navigate_to("settings")
 
     usage_count = min(st.session_state["usage_count"], 50)
     usage_pct = round((usage_count / 50) * 100)
@@ -883,6 +912,33 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+# ---------------------------------------------------------------------
+# Mobile nav: a compact, horizontally-scrollable equivalent of the
+# sidebar's navigation, for phone-width viewports where the sidebar is
+# collapsed behind Streamlit's own hamburger menu. Hidden entirely on
+# desktop via CSS (see .st-key-ros-mobile-nav above) -- the sidebar
+# itself is untouched. Reuses the exact same _navigate_to() routing as
+# the desktop sidebar buttons, so there is no duplicated view logic.
+# ---------------------------------------------------------------------
+with st.container(key="ros-mobile-nav"):
+    mnav_cols = st.columns(5)
+    with mnav_cols[0]:
+        if st.button("✦ New", key="mnav-new-research"):
+            _navigate_to("research", clear_report=True)
+    with mnav_cols[1]:
+        if st.button("⏱ History", key="mnav-history"):
+            _navigate_to("history")
+    with mnav_cols[2]:
+        if st.button("▤ Saved", key="mnav-saved-reports"):
+            _navigate_to("saved_reports")
+    with mnav_cols[3]:
+        if st.button("◈ Sources", key="mnav-sources-library"):
+            _navigate_to("sources_library")
+    with mnav_cols[4]:
+        if st.button("⚙ Settings", key="mnav-settings"):
+            _navigate_to("settings")
 
 
 if st.session_state["active_view"] == "history":
