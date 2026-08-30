@@ -333,10 +333,12 @@ st.markdown(
     .ros-section-label{ font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase;
         color:var(--muted); margin:1.6rem 0 0.6rem 0; font-weight:600; }
 
-    /* ---- Mobile nav: compact touch-friendly equivalent of the sidebar's
-       navigation. Hidden entirely outside the mobile breakpoint below --
-       the desktop sidebar above is completely untouched. ---- */
-    .st-key-ros-mobile-nav{ display:none; }
+    /* ---- Mobile nav: hamburger-triggered slide-out sidebar. Hidden
+       entirely outside the mobile breakpoint below -- the desktop
+       sidebar above is completely untouched. ---- */
+    .st-key-ros-mobile-hamburger,
+    .st-key-ros-mobile-backdrop,
+    .st-key-ros-mobile-drawer{ display:none; }
 
     /* ---- Responsive ---- */
     @media (max-width: 768px){
@@ -345,21 +347,56 @@ st.markdown(
         .ros-wf-stage{ min-width:84px; }
         .block-container{ padding-left:0.9rem; padding-right:0.9rem; }
 
-        .st-key-ros-mobile-nav{
-            display:block;
-            margin:0 0 1.1rem 0;
-            padding:0.35rem 0 0.5rem 0;
-            border-bottom:1px solid var(--border-soft);
+        .st-key-ros-mobile-hamburger{
+            display:flex; position:fixed; top:14px; left:14px; z-index:1001;
         }
-        .st-key-ros-mobile-nav [data-testid="stHorizontalBlock"]{
-            display:flex; flex-wrap:nowrap; gap:0.5rem;
-            overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
+        .st-key-ros-mobile-hamburger button{
+            width:46px; height:46px; min-height:46px; padding:0; margin:0;
+            border-radius:12px; display:flex; align-items:center; justify-content:center;
+            font-size:1.35rem; line-height:1;
+            background:var(--panel-strong); border:1px solid var(--border);
+            color:var(--text); backdrop-filter:blur(8px);
+            box-shadow:0 4px 18px rgba(0,0,0,0.4);
         }
-        .st-key-ros-mobile-nav [data-testid="stHorizontalBlock"]::-webkit-scrollbar{ display:none; }
-        .st-key-ros-mobile-nav [data-testid="stColumn"]{ flex:0 0 auto; width:auto; min-width:auto; }
-        .st-key-ros-mobile-nav .stButton button{
-            white-space:nowrap; border-radius:999px; padding:0.55rem 1rem;
-            font-size:0.82rem; min-height:44px;
+
+        .st-key-ros-mobile-backdrop{
+            display:block; position:fixed; inset:0; z-index:998;
+            transition:opacity 0.3s ease;
+        }
+        .st-key-ros-mobile-backdrop button{
+            position:fixed; inset:0; width:100vw; height:100vh;
+            margin:0; padding:0; border:none; border-radius:0;
+            background:rgba(2,3,8,0.62); backdrop-filter:blur(2px);
+            font-size:0; color:transparent;
+        }
+
+        .st-key-ros-mobile-drawer{
+            display:block; position:fixed; top:0; left:0; height:100vh;
+            width:80vw; max-width:300px; z-index:999;
+            background:linear-gradient(180deg, #0c0e1a 0%, #06070f 100%);
+            border-right:1px solid var(--border-soft);
+            box-shadow:0 0 40px rgba(0,0,0,0.5);
+            padding:1.2rem 1rem 1.5rem 1rem; overflow-y:auto;
+            transition:transform 0.32s cubic-bezier(0.4,0,0.2,1);
+        }
+        .st-key-ros-mobile-drawer .stButton button{
+            width:100%; text-align:left; justify-content:flex-start;
+            background:transparent; border:1px solid transparent; color:var(--text);
+            font-weight:500; border-radius:10px; padding:0.85rem 0.8rem;
+            font-size:0.95rem; min-height:48px; box-shadow:none;
+        }
+        .st-key-ros-mobile-drawer .stButton button:hover,
+        .st-key-ros-mobile-drawer .stButton button:active{
+            background:var(--panel-strong); border-color:var(--border); color:#fff;
+        }
+        .st-key-mnav-close button{
+            width:40px; height:40px; min-height:40px; padding:0; margin-left:auto;
+            display:flex; align-items:center; justify-content:center;
+            font-size:1.3rem; border-radius:10px;
+        }
+        .ros-mobile-drawer-heading{
+            font-size:0.68rem; letter-spacing:0.1em; text-transform:uppercase;
+            color:var(--muted-soft); display:flex; align-items:center; height:40px;
         }
     }
     </style>
@@ -376,6 +413,7 @@ st.markdown(
 st.session_state.setdefault("usage_count", 0)
 st.session_state.setdefault("active_view", "research")
 st.session_state.setdefault("default_depth", "Standard")
+st.session_state.setdefault("mobile_nav_open", False)
 
 
 def _navigate_to(view, clear_report=False):
@@ -915,30 +953,72 @@ st.markdown(
 
 
 # ---------------------------------------------------------------------
-# Mobile nav: a compact, horizontally-scrollable equivalent of the
-# sidebar's navigation, for phone-width viewports where the sidebar is
-# collapsed behind Streamlit's own hamburger menu. Hidden entirely on
-# desktop via CSS (see .st-key-ros-mobile-nav above) -- the sidebar
-# itself is untouched. Reuses the exact same _navigate_to() routing as
-# the desktop sidebar buttons, so there is no duplicated view logic.
+# Mobile nav: a hamburger-triggered slide-out sidebar, for phone-width
+# viewports where the sidebar is collapsed behind Streamlit's own
+# hamburger menu. Hidden entirely on desktop via CSS (see
+# .st-key-ros-mobile-* rules above) -- the sidebar itself is untouched.
+# Reuses the exact same _navigate_to() routing as the desktop sidebar
+# buttons, so there is no duplicated view logic.
 # ---------------------------------------------------------------------
-with st.container(key="ros-mobile-nav"):
-    mnav_cols = st.columns(5)
-    with mnav_cols[0]:
-        if st.button("✦ New", key="mnav-new-research"):
-            _navigate_to("research", clear_report=True)
-    with mnav_cols[1]:
-        if st.button("⏱ History", key="mnav-history"):
-            _navigate_to("history")
-    with mnav_cols[2]:
-        if st.button("▤ Saved", key="mnav-saved-reports"):
-            _navigate_to("saved_reports")
-    with mnav_cols[3]:
-        if st.button("◈ Sources", key="mnav-sources-library"):
-            _navigate_to("sources_library")
-    with mnav_cols[4]:
-        if st.button("⚙ Settings", key="mnav-settings"):
-            _navigate_to("settings")
+_mobile_nav_open = st.session_state["mobile_nav_open"]
+
+# Drawer open/closed state is expressed purely as CSS (transform/opacity)
+# driven by session_state, so the slide animates instead of popping --
+# scoped entirely inside the mobile breakpoint, so desktop is unaffected.
+st.markdown(
+    f"""
+    <style>
+    @media (max-width: 768px){{
+        .st-key-ros-mobile-hamburger{{ display:{"none" if _mobile_nav_open else "flex"} !important; }}
+        .st-key-ros-mobile-backdrop{{
+            opacity:{1 if _mobile_nav_open else 0};
+            pointer-events:{"auto" if _mobile_nav_open else "none"};
+        }}
+        .st-key-ros-mobile-drawer{{
+            transform:{"translateX(0)" if _mobile_nav_open else "translateX(-100%)"};
+        }}
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def _mobile_navigate_to(view, clear_report=False):
+    """Close the slide-out drawer, then route through the shared nav logic."""
+    st.session_state["mobile_nav_open"] = False
+    _navigate_to(view, clear_report=clear_report)
+
+
+with st.container(key="ros-mobile-hamburger"):
+    if st.button("☰", key="mnav-hamburger", help="Open navigation menu"):
+        st.session_state["mobile_nav_open"] = True
+        st.rerun()
+
+with st.container(key="ros-mobile-backdrop"):
+    if st.button("Close menu", key="mnav-backdrop"):
+        st.session_state["mobile_nav_open"] = False
+        st.rerun()
+
+with st.container(key="ros-mobile-drawer"):
+    drawer_heading_col, drawer_close_col = st.columns([5, 1])
+    with drawer_heading_col:
+        st.markdown('<div class="ros-mobile-drawer-heading">Explore Research</div>', unsafe_allow_html=True)
+    with drawer_close_col:
+        if st.button("×", key="mnav-close", help="Close menu"):
+            st.session_state["mobile_nav_open"] = False
+            st.rerun()
+
+    if st.button("✦  New Research", key="mnav-new-research", width="stretch"):
+        _mobile_navigate_to("research", clear_report=True)
+    if st.button("⏱  Research History", key="mnav-history", width="stretch"):
+        _mobile_navigate_to("history")
+    if st.button("▤  Saved Reports", key="mnav-saved-reports", width="stretch"):
+        _mobile_navigate_to("saved_reports")
+    if st.button("◈  Sources Library", key="mnav-sources-library", width="stretch"):
+        _mobile_navigate_to("sources_library")
+    if st.button("⚙  Settings", key="mnav-settings", width="stretch"):
+        _mobile_navigate_to("settings")
 
 
 if st.session_state["active_view"] == "history":
